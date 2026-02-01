@@ -375,3 +375,604 @@ scrapy crawl gm_review_spider     # Yorum toplama
 5. **Test Mock'ları**: API testlerinde `setup.ts` Redis'i in-memory Map ile, Drizzle'ı Proxy mock ile simüle eder
 6. **Scraper Etik Kullanım**: Google Maps ToS'a dikkat et, rate limiting ve proxy rotation aktif tut
 7. **Cache Invalidation**: Yeni veri girişinde `cacheDeletePattern("search:*")` çağır
+
+---
+
+## Detaylı Teknik Dokümantasyon
+
+> Bu bölüm, projeyi sıfırdan ayağa kaldıracak veya geliştirmeye devam edecek bir yazılımcı ya da LLM için hazırlanmış kapsamlı operasyonel dokümandır.
+
+### 1. Ön Gereksinimler (Prerequisites)
+
+| Yazılım | Minimum Versiyon | Kurulum Notu |
+|---------|-----------------|--------------|
+| Node.js | 20.x | `nvm install 20` veya `brew install node@20` |
+| pnpm | 9.0.0+ | `npm install -g pnpm@9` veya `corepack enable && corepack prepare pnpm@9.15.4` |
+| Docker & Docker Compose | Son sürüm | PostgreSQL ve Redis container'ları için gerekli |
+| Python | 3.11+ | NLP pipeline ve Scraper için (`pyenv install 3.11`) |
+| Playwright | 1.49+ | E2E testler ve Scraper için (`npx playwright install chromium`) |
+
+### 2. Projeyi Sıfırdan Kurma (Fresh Setup)
+
+```bash
+# 1. Repoyu klonla
+git clone https://github.com/FeritTasdildiren/iyisiniye.git
+cd iyisiniye
+
+# 2. Node.js bağımlılıklarını yükle (pnpm monorepo)
+pnpm install
+
+# 3. Docker servislerini başlat (PostgreSQL 17 + PostGIS + Redis 7)
+docker compose up -d
+# PostgreSQL → localhost:15433
+# Redis → localhost:6380
+
+# 4. Docker container'ların hazır olduğunu doğrula
+docker compose ps
+# Her iki container da "healthy" olmalı
+
+# 5. Ortam değişkenlerini ayarla
+cp .env.example apps/api/.env
+cp .env.example packages/db/.env
+# NOT: .env.example'daki varsayılan değerler Docker kurulumu ile uyumludur
+# Production için DATABASE_URL ve şifreleri değiştirin
+
+# 6. Veritabanı migration'ını çalıştır (tablolar + indeksler + extension'lar)
+pnpm db:migrate
+# Bu komut: drizzle-kit migrate → packages/db/src/migrations/ altındaki SQL'leri çalıştırır
+# PostGIS, pg_trgm, unaccent extension'ları docker/init-extensions.sql ile otomatik yüklenir
+
+# 7. (Opsiyonel) Veritabanına doğrudan bağlanıp kontrol et
+docker exec -it iyisiniye-postgres psql -U iyisiniye_app -d iyisiniye
+# \dt → 11 tablo görmeli
+# \dx → postgis, pg_trgm, unaccent görmeli
+
+# 8. Python NLP ortamını kur
+cd nlp
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+# BERT modeli ilk çalışmada otomatik indirilir (~500MB)
+deactivate
+cd ..
+
+# 9. Python Scraper ortamını kur
+cd scraper
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+playwright install chromium  # Headless tarayıcı
+deactivate
+cd ..
+
+# 10. Tüm servisleri başlat (development)
+pnpm dev
+# → API: http://localhost:3001 (Fastify + hot-reload via tsx watch)
+# → Web: http://localhost:4321 (Astro dev server)
+# → API proxy: Astro, /api isteklerini otomatik olarak localhost:3001'e yönlendirir
+```
+
+### 3. Ortam Değişkenleri (Environment Variables)
+
+| Değişken | Açıklama | Örnek Değer | Zorunlu | Nerede Kullanılıyor |
+|----------|----------|-------------|---------|---------------------|
+| `DATABASE_URL` | PostgreSQL bağlantı string'i | `postgresql://iyisiniye_app:IyS2026SecureDB@127.0.0.1:15433/iyisiniye` | Evet | `packages/db`, `apps/api` |
+| `DATABASE_HOST` | DB host adresi | `127.0.0.1` | Evet | `packages/db` (drizzle.config.ts) |
+| `DATABASE_PORT` | DB port numarası | `15433` (dev) / `5433` (prod) | Evet | `packages/db` |
+| `DATABASE_NAME` | Veritabanı adı | `iyisiniye` | Evet | `packages/db` |
+| `DATABASE_USER` | DB kullanıcı adı | `iyisiniye_app` | Evet | `packages/db` |
+| `DATABASE_PASSWORD` | DB şifresi | `IyS2026SecureDB` | Evet | `packages/db` |
+| `REDIS_URL` | Redis bağlantı string'i | `redis://localhost:6380` | Evet | `apps/api` (lib/redis.ts) |
+| `API_PORT` | API sunucu portu | `3001` | Evet | `apps/api` |
+| `API_HOST` | API dinleme adresi | `0.0.0.0` | Evet | `apps/api` |
+| `NODE_ENV` | Ortam türü | `development` / `production` | Evet | Tüm paketler |
+| `PUBLIC_API_URL` | Frontend'in API'ye erişim URL'i | `http://localhost:3001` | Hayır | `apps/web` (React bileşenleri) |
+| `PUBLIC_SITE_URL` | Sitenin public URL'i | `http://localhost:4321` | Hayır | `apps/web` |
+| `GOOGLE_MAPS_API_KEY` | Google Maps API anahtarı | _(boş bırakılabilir, scraper için)_ | Hayır | `scraper` |
+| `SCRAPER_RATE_LIMIT` | Saniye başına istek limiti | `2` | Hayır | `scraper` |
+| `PROXY_API_URL` | Proxy servis URL'i | `http://127.0.0.1:8000` | Hayır | `scraper` |
+| `JWT_SECRET` | JWT imzalama anahtarı | `change-me-in-production` | Hayır* | `apps/api` (auth henüz aktif değil) |
+| `JWT_EXPIRES_IN` | JWT geçerlilik süresi | `7d` | Hayır* | `apps/api` |
+
+> **NOT:** `.env.example` dosyası root'ta mevcuttur. `apps/api/.env` ve `packages/db/.env` ayrı ayrı oluşturulmalıdır (aynı değerlerle).
+
+### 4. Veritabanı Yönetimi
+
+#### Veritabanı Kurulumu
+```bash
+# Docker ile PostgreSQL 17 + PostGIS başlatma
+docker compose up -d postgres
+
+# Extension'lar otomatik yüklenir (docker/init-extensions.sql):
+# CREATE EXTENSION IF NOT EXISTS postgis;
+# CREATE EXTENSION IF NOT EXISTS pg_trgm;
+# CREATE EXTENSION IF NOT EXISTS unaccent;
+
+# Bağlantı testi
+docker exec -it iyisiniye-postgres psql -U iyisiniye_app -d iyisiniye -c "SELECT PostGIS_version();"
+# → "3.5 USE_GEOS=1 USE_PROJ=1 USE_STATS=1"
+```
+
+#### Migration'lar
+```bash
+# Migration oluşturma (schema.ts değiştikten sonra)
+cd packages/db
+pnpm db:generate
+# → src/migrations/ altına yeni SQL dosyası oluşturur
+
+# Migration çalıştırma (SQL'leri DB'ye uygulama)
+pnpm db:migrate
+# veya root'tan: pnpm db:migrate
+
+# Şemayı doğrudan push etme (development'ta hızlı prototipleme için)
+pnpm db:push
+# DİKKAT: Bu komut migration dosyası oluşturmaz, şemayı doğrudan uygular
+
+# Drizzle Studio ile veritabanını görsel olarak inceleme
+pnpm db:studio
+# → https://local.drizzle.studio açılır
+```
+
+#### Seed Data (Test Verisi)
+```bash
+# Henüz seed script çalıştırma komutu tanımlı değil
+# packages/db/src/seed.ts dosyası mevcut ama package.json'da script yok
+# Manuel çalıştırma:
+cd packages/db
+npx tsx src/seed.ts
+
+# Alternatif: Scraper ile gerçek veri toplama
+cd scraper
+source .venv/bin/activate
+scrapy crawl gm_list_spider -a city=istanbul -a query="restoran"
+scrapy crawl gm_review_spider
+```
+
+#### Şema Değişikliği Yapma Adımları
+1. `packages/db/src/schema.ts` dosyasını düzenle (tablo ekle/değiştir)
+2. `cd packages/db && pnpm db:generate` ile migration SQL'i oluştur
+3. Oluşan SQL dosyasını `src/migrations/` altında kontrol et
+4. `pnpm db:migrate` ile migration'ı uygula
+5. Eğer yeni tablo/kolon API'de kullanılacaksa `packages/db/src/index.ts`'de export'u kontrol et
+6. `apps/api/src/routes/` altında ilgili route dosyasını güncelle
+
+### 5. Servisleri Çalıştırma
+
+#### Geliştirme Ortamı (Development)
+```bash
+# Tüm servisleri aynı anda çalıştırma (Turborepo paralel)
+pnpm dev
+# Bu komut şunları başlatır:
+# - apps/api: tsx watch src/index.ts (hot-reload)
+# - apps/web: astro dev (hot-reload + HMR)
+
+# Her servisi ayrı ayrı çalıştırma
+cd apps/api && pnpm dev    # Sadece API (http://localhost:3001)
+cd apps/web && pnpm dev    # Sadece Web (http://localhost:4321)
+
+# Docker servislerini başlatma (DB + Redis)
+docker compose up -d       # Arka planda
+docker compose logs -f     # Logları takip et
+docker compose down        # Durdur
+
+# API health check
+curl http://localhost:3001/health
+# → {"status":"ok"}
+```
+
+#### Üretim Ortamı (Production)
+```bash
+# 1. Build (tüm paketler)
+pnpm build
+# → apps/api/dist/index.js (tsup ile ESM bundle)
+# → apps/web/dist/ (Astro static build)
+
+# 2. API başlatma (production)
+cd apps/api
+NODE_ENV=production node dist/index.js
+
+# 3. Web statik dosyaları serve etme
+# Astro SSG çıktısı apps/web/dist/ altında
+# Nginx veya herhangi bir static file server ile serve edilir
+
+# 4. PM2 ile process management (önerilen)
+# PM2 yapılandırması henüz oluşturulmadı (infra/pm2/ boş)
+# Örnek:
+pm2 start apps/api/dist/index.js --name iyisiniye-api
+pm2 save
+pm2 startup
+```
+
+#### Port Haritası
+| Servis | Port | URL | Notlar |
+|--------|------|-----|--------|
+| Astro Web (dev) | 4321 | http://localhost:4321 | Hot-reload, `/api` proxy aktif |
+| Fastify API (dev) | 3001 | http://localhost:3001 | tsx watch ile hot-reload |
+| PostgreSQL (Docker) | 15433 | localhost:15433 | Container internal: 5432 |
+| Redis (Docker) | 6380 | localhost:6380 | Container internal: 6379 |
+| PostgreSQL (Production) | 5433 | 157.173.116.230:5433 | Doğrudan bağlantı |
+| Drizzle Studio | 4983 | https://local.drizzle.studio | `pnpm db:studio` ile |
+
+### 6. API Dokümantasyonu
+
+#### Endpoint Listesi
+| Method | Path | Açıklama | Auth? | Cache TTL |
+|--------|------|----------|-------|-----------|
+| GET | `/health` | Sağlık kontrolü | Hayır | - |
+| GET | `/api/v1/search` | Restoran & yemek arama | Hayır | 300s |
+| GET | `/api/v1/restaurant/:slug` | Restoran detay | Hayır | 900s |
+| GET | `/api/v1/dish/:slug` | Yemek detay | Hayır | 600s |
+| GET | `/api/v1/autocomplete` | Otomatik tamamlama | Hayır | 3600s |
+
+#### Örnek İstekler ve Yanıtlar
+
+**1. Arama (`/api/v1/search`)**
+```bash
+curl "http://localhost:3001/api/v1/search?q=lahmacun&district=kadikoy&sort_by=score&page=1&limit=10"
+```
+Query parametreleri:
+- `q` (zorunlu, min 2 karakter): Arama sorgusu
+- `district`: İlçe filtresi
+- `cuisine`: `turk|kebap|balik|doner|pide_lahmacun|ev_yemekleri|sokak_lezzetleri|tatli_pasta|kahvalti|italyan|uzakdogu|fast_food|vegan|diger`
+- `price_range`: 1-4 (1=ucuz, 4=pahalı)
+- `min_score`: 1-10 minimum puan
+- `sort_by`: `score` (varsayılan) | `distance` | `newest`
+- `page`: Sayfa numarası (varsayılan: 1)
+- `limit`: Sayfa boyutu (1-50, varsayılan: 20)
+- `lat`, `lng`: Konum koordinatları (distance sort ve 10km filtre için)
+
+Yanıt:
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "name": "Halil Lahmacun",
+      "slug": "halil-lahmacun",
+      "address": "Caferağa Mah. Moda Cad.",
+      "district": "Kadıköy",
+      "neighborhood": "Caferağa",
+      "cuisineType": ["pide_lahmacun", "kebap"],
+      "priceRange": 2,
+      "overallScore": "8.5",
+      "totalReviews": 142,
+      "imageUrl": null,
+      "distance": 2.3,
+      "topDishes": [
+        { "foodName": "Lahmacun", "score": "9.1", "reviewCount": 87 },
+        { "foodName": "Pide", "score": "7.8", "reviewCount": 34 }
+      ]
+    }
+  ],
+  "pagination": { "page": 1, "limit": 10, "total": 23, "totalPages": 3, "hasNext": true, "hasPrev": false },
+  "meta": { "query": "lahmacun", "appliedFilters": { "district": "kadikoy", "cuisine": null, "priceRange": null, "minScore": null }, "sortBy": "score" }
+}
+```
+
+**2. Restoran Detay (`/api/v1/restaurant/:slug`)**
+```bash
+curl "http://localhost:3001/api/v1/restaurant/halil-lahmacun"
+```
+Yanıt: Restoran bilgileri + platform verileri + top yemekler + son 10 yorum + sentiment dağılımı
+
+**3. Yemek Detay (`/api/v1/dish/:slug`)**
+```bash
+curl "http://localhost:3001/api/v1/dish/lahmacun"
+```
+Yanıt: Yemek bilgileri + hangi restoranlarda yapılıyor + puan sıralaması + sentiment istatistikleri
+
+**4. Otomatik Tamamlama (`/api/v1/autocomplete`)**
+```bash
+curl "http://localhost:3001/api/v1/autocomplete?q=lah"
+```
+Query: `q` (zorunlu, min 2 karakter)
+Rate limit: 30 istek/dk/IP
+Yanıt:
+```json
+{
+  "restaurants": [{ "name": "Halil Lahmacun", "slug": "halil-lahmacun", "district": "Kadıköy" }],
+  "dishes": [{ "name": "Lahmacun", "slug": "lahmacun", "category": "pide_lahmacun" }]
+}
+```
+
+### 7. Proje Klasör Yapısı (Detaylı)
+
+```
+iyisiniye/
+├── package.json                 # Monorepo root: scripts (dev, build, test, db:*)
+├── turbo.json                   # Turborepo task tanımları ve bağımlılıkları
+├── pnpm-workspace.yaml          # Workspace: ["apps/*", "packages/*"]
+├── docker-compose.yml           # PostgreSQL 17 + PostGIS + Redis 7
+├── .env.example                 # Tüm ortam değişkenleri şablonu
+├── .gitignore                   # node_modules, dist, .env, __pycache__, vb.
+├── CLAUDE.md                    # Bu dosya — proje hafızası ve handoff dokümanı
+│
+├── docker/
+│   └── init-extensions.sql      # PostGIS + pg_trgm + unaccent otomatik kurulum
+│
+├── apps/
+│   ├── api/                     # ──── FASTIFY REST API ────
+│   │   ├── package.json         # @iyisiniye/api — Fastify 5, Zod v4, ioredis
+│   │   ├── vitest.config.ts     # Test yapılandırması
+│   │   ├── .env                 # API ortam değişkenleri (gitignore'da)
+│   │   └── src/
+│   │       ├── index.ts         # buildApp() → CORS, Helmet, Rate Limit, Routes → start()
+│   │       ├── lib/
+│   │       │   ├── redis.ts     # ioredis singleton (retry strategy, graceful shutdown)
+│   │       │   └── cache.ts     # cacheGet, cacheSet, cacheDelete, cacheDeletePattern
+│   │       ├── routes/
+│   │       │   ├── search.ts    # GET /api/v1/search — FTS + trigram + PostGIS
+│   │       │   ├── restaurant.ts# GET /api/v1/restaurant/:slug — 4 paralel sorgu
+│   │       │   ├── dish.ts      # GET /api/v1/dish/:slug — yemek → restoranlar
+│   │       │   └── autocomplete.ts # GET /api/v1/autocomplete — 5+5 trigram
+│   │       └── __tests__/
+│   │           ├── setup.ts     # Redis Mock (Map), Drizzle Proxy Mock
+│   │           ├── search.test.ts
+│   │           ├── restaurant.test.ts
+│   │           ├── dish.test.ts
+│   │           ├── autocomplete.test.ts
+│   │           └── cache.test.ts
+│   │
+│   ├── web/                     # ──── ASTRO 5 FRONTEND ────
+│   │   ├── package.json         # @iyisiniye/web — Astro 5, React 19, Tailwind 4
+│   │   ├── astro.config.mjs     # Static output, React integration, /api proxy
+│   │   ├── playwright.config.ts # E2E test yapılandırması
+│   │   └── src/
+│   │       ├── layouts/
+│   │       │   └── BaseLayout.astro  # <head>, meta tags, Tailwind, Poppins font
+│   │       ├── pages/
+│   │       │   ├── index.astro       # Ana sayfa (Hero + Search + Carousel + Stars)
+│   │       │   ├── search.astro      # Arama sayfası → SearchIsland (client:load)
+│   │       │   └── restaurant/
+│   │       │       └── [slug].astro  # Restoran detay → RestaurantDetailIsland
+│   │       ├── components/           # 13 React/Astro bileşen
+│   │       │   ├── SearchIsland.tsx  # Ana arama + filtreler + sonuç listesi
+│   │       │   ├── RestaurantDetailIsland.tsx
+│   │       │   ├── HeroSearch.tsx    # Ana sayfa arama kutusu
+│   │       │   ├── PopularDishesCarousel.tsx
+│   │       │   ├── VenueCard.tsx     # Restoran kartı bileşeni
+│   │       │   ├── DishRow.tsx       # Yemek satırı bileşeni
+│   │       │   ├── ScoreBadge.tsx    # Puan rozeti (≥8 yeşil, ≥5 turuncu, <5 kırmızı)
+│   │       │   ├── FilterChip.tsx    # Filtre toggle chip
+│   │       │   ├── Button.tsx        # Genel buton (primary/secondary/ghost)
+│   │       │   └── EmptyState.tsx    # Sonuç yok gösterimi
+│   │       └── styles/
+│   │           └── global.css        # Tailwind base + Poppins import
+│   │   └── e2e/
+│   │       ├── search-flow.spec.ts       # 13 E2E test
+│   │       ├── filter-pagination.spec.ts # 16 E2E test
+│   │       └── error-states.spec.ts      # 12 E2E test
+│   │
+│   └── admin/                   # ──── ADMIN PANEL (boş iskelet) ────
+│       └── package.json         # @iyisiniye/admin — Vite + React Router DOM
+│
+├── packages/
+│   ├── db/                      # ──── VERİTABANI PAKETİ ────
+│   │   ├── package.json         # @iyisiniye/db — Drizzle ORM, postgres.js
+│   │   ├── drizzle.config.ts    # Migration yapılandırması (dialect: postgresql)
+│   │   ├── .env                 # DB ortam değişkenleri (gitignore'da)
+│   │   └── src/
+│   │       ├── index.ts         # DB bağlantısı (postgres.js, max 10 conn) + export
+│   │       ├── schema.ts        # 11 tablo + ilişkiler + GIN/GiST/B-tree indeksler
+│   │       ├── seed.ts          # Seed data scripti
+│   │       └── migrations/
+│   │           ├── 0000_overconfident_scarlet_spider.sql  # İlk migration (141 satır)
+│   │           └── meta/        # Drizzle migration metadata
+│   │
+│   └── shared/                  # ──── PAYLAŞIMLI TİPLER ────
+│       ├── package.json         # @iyisiniye/shared
+│       └── src/
+│           ├── index.ts         # Ana export
+│           ├── types/index.ts   # Ortak TypeScript tipleri
+│           ├── constants/index.ts # Sabit değerler (cuisineTypes, priceRanges vb.)
+│           └── utils/index.ts   # Yardımcı fonksiyonlar
+│
+├── nlp/                         # ──── PYTHON NLP PIPELINE ────
+│   ├── pyproject.toml           # Proje metadata (iyisiniye-nlp)
+│   ├── requirements.txt         # transformers, torch, rapidfuzz, pandas, psycopg2
+│   ├── run_pipeline.sh          # Pipeline çalıştırma shell scripti
+│   ├── src/
+│   │   ├── nlp_batch_pipeline.py    # ANA PIPELINE: DB'den oku → işle → yaz
+│   │   ├── food_extractor.py        # Regex + BERT ile yemek adı çıkarma
+│   │   ├── food_normalizer.py       # Aliases → canonical name dönüşümü
+│   │   ├── food_scorer.py           # Sentiment → 1-10 puan hesaplama
+│   │   ├── item_filter.py           # Yemek mi değil mi sınıflandırma
+│   │   ├── sentiment_analyzer.py    # BERT Türkçe sentiment analizi
+│   │   └── weak_labeler.py          # Bootstrap zayıf etiketleme
+│   ├── data/
+│   │   ├── yemek_sozlugu.json       # Türkçe yemek sözlüğü
+│   │   └── filtre_sozlugu.json      # Filtreleme sözlüğü
+│   ├── models/                      # BERT model checkpoint'ları (otomatik indirilir)
+│   └── tests/
+│
+├── scraper/                     # ──── SCRAPY WEB SCRAPER ────
+│   ├── scrapy.cfg               # Scrapy proje yapılandırması
+│   ├── pyproject.toml           # Proje metadata
+│   ├── requirements.txt         # scrapy, playwright, httpx, psycopg2, loguru
+│   ├── iyisiniye_scraper/       # Ana Scrapy projesi
+│   │   ├── settings.py          # Bot config, download_delay=3, concurrent=8
+│   │   ├── items.py             # RestaurantItem, ReviewItem tanımları
+│   │   ├── pipelines.py         # Validation → Dedup → Database (918 satır)
+│   │   ├── middlewares/
+│   │   │   └── rate_limiter.py  # İstek hız sınırlama
+│   │   └── spiders/
+│   │       ├── base_spider.py       # Temel spider sınıfı
+│   │       ├── google_maps_list.py  # GM restoran listesi spider'ı
+│   │       └── google_maps_reviews.py # GM yorum spider'ı
+│   ├── matching/
+│   │   └── cross_platform.py    # Çapraz platform restoran eşleştirme
+│   ├── middlewares/
+│   │   └── proxy_middleware.py  # Proxy rotation middleware
+│   ├── config/
+│   │   └── settings.py          # Ek yapılandırma
+│   └── tests/
+│
+├── infra/                       # ──── ALTYAPI (henüz boş) ────
+│   ├── nginx/                   # Nginx reverse proxy config'leri
+│   ├── cron/                    # Cron job tanımları (NLP, scraper)
+│   └── pm2/                     # PM2 process yapılandırması
+│
+└── docs/
+    └── api-contracts-v1.ts      # API kontrat tanımları (TypeScript arayüzleri)
+```
+
+### 8. Üçüncü Parti Servisler ve Entegrasyonlar
+
+| Servis | Amaç | Bağlantı | Credential |
+|--------|------|----------|------------|
+| PostgreSQL 17 + PostGIS | Ana veritabanı + mekansal sorgular | Docker: `localhost:15433` / Prod: `157.173.116.230:5433` | `iyisiniye_app` / `IyS2026SecureDB` |
+| Redis 7 | API yanıt cache'i | Docker: `localhost:6380` | Şifresiz (development) |
+| Google Maps | Restoran ve yorum verisi (scraping) | Web scraping | `GOOGLE_MAPS_API_KEY` (opsiyonel) |
+| HuggingFace Transformers | BERT sentiment modeli | Otomatik indirme | - |
+| CloudPanel | Sunucu yönetim paneli | `https://cloud.skystonetech.com` | `admin` / `SFj353!*?dd` |
+
+### 9. Test Stratejisi
+
+#### Test Çalıştırma
+```bash
+# API testleri (Vitest — 41 test)
+pnpm test
+# veya: cd apps/api && pnpm test
+# veya: cd apps/api && pnpm test:watch  # İzleme modu
+
+# E2E testleri (Playwright — 41 test)
+cd apps/web
+npx playwright test                    # Tüm E2E testler
+npx playwright test search-flow        # Tek dosya
+npx playwright test --headed           # Tarayıcı görünür
+npx playwright test --debug            # Debug modu
+npx playwright show-report             # Son test raporu
+
+# NOT: E2E testler için API ve Web sunucularının çalışıyor olması gerekir
+# Önce: pnpm dev (ayrı terminal)
+```
+
+#### Test Yazma Kuralları
+- **API testleri**: `apps/api/src/__tests__/` altına `*.test.ts` dosyası oluştur
+- **Mock altyapısı**: `setup.ts` Redis'i in-memory Map ile, Drizzle'ı Proxy mock ile simüle eder — gerçek DB'ye bağlanmaz
+- **Her yeni endpoint için**: En az request/response format testi, hata durumu testi, cache davranış testi yaz
+- **E2E testleri**: `apps/web/e2e/` altına `*.spec.ts` dosyası oluştur
+- **E2E pattern**: Page Object Model kullanma, doğrudan `page.goto()` + `page.locator()` ile test
+
+### 10. Deployment (Yayına Alma)
+
+#### Deployment Adımları
+```bash
+# ⚠️ PROJE HENÜZ DEPLOY EDİLMEDİ — Aşağıdaki adımlar planlanan deployment sürecidir
+
+# 1. Sunucuya SSH bağlantısı
+ssh root@157.173.116.230
+
+# 2. Node.js ve pnpm kurulumu (sunucuda)
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+apt-get install -y nodejs
+npm install -g pnpm@9
+
+# 3. PostgreSQL (sunucuda zaten var — port 5433)
+# Extension'ları yükle:
+psql -U iyisiniye_app -d iyisiniye -c "CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSION IF NOT EXISTS pg_trgm; CREATE EXTENSION IF NOT EXISTS unaccent;"
+
+# 4. Redis kurulumu
+apt-get install -y redis-server
+systemctl enable redis-server
+
+# 5. Proje dosyalarını sunucuya aktar
+git clone https://github.com/FeritTasdildiren/iyisiniye.git /opt/iyisiniye
+cd /opt/iyisiniye
+pnpm install --frozen-lockfile
+
+# 6. Ortam değişkenlerini ayarla (production değerleri)
+# apps/api/.env ve packages/db/.env dosyalarını production değerleriyle oluştur
+# DATABASE_URL → 157.173.116.230:5433
+# REDIS_URL → redis://localhost:6379
+# NODE_ENV=production
+
+# 7. Migration çalıştır
+pnpm db:migrate
+
+# 8. Build
+pnpm build
+
+# 9. PM2 ile API başlat
+npm install -g pm2
+pm2 start apps/api/dist/index.js --name iyisiniye-api
+pm2 save && pm2 startup
+
+# 10. Nginx reverse proxy ayarla
+# /etc/nginx/sites-available/iyisiniye.conf
+# → API: proxy_pass http://localhost:3001
+# → Web: root /opt/iyisiniye/apps/web/dist (static files)
+
+# 11. Python ortamlarını kur (NLP + Scraper)
+cd /opt/iyisiniye/nlp && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+cd /opt/iyisiniye/scraper && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+
+# 12. Cron job'ları ayarla
+# crontab -e
+# 0 3 * * * cd /opt/iyisiniye/nlp && .venv/bin/python src/nlp_batch_pipeline.py
+# 0 1 * * 1 cd /opt/iyisiniye/scraper && .venv/bin/scrapy crawl gm_review_spider
+```
+
+#### Sunucu Bilgileri
+| Alan | Değer |
+|------|-------|
+| Host | 157.173.116.230 |
+| SSH | `ssh root@157.173.116.230` / Şifre: `E3Ry8H#bWkMGJc6y` |
+| Web Panel | https://cloud.skystonetech.com (admin / SFj353!*?dd) |
+| Mail | https://mail.skystonetech.com (admin / SFj353!*?dd) |
+
+#### Domain ve DNS Ayarları
+Henüz yapılandırılmadı. Planlanan: `iyisiniye.com` → `157.173.116.230`
+
+### 11. Sık Karşılaşılan Sorunlar ve Çözümleri
+
+| Sorun | Olası Neden | Çözüm |
+|-------|-------------|-------|
+| `pnpm install` hata veriyor | pnpm versiyonu eski | `npm install -g pnpm@9` ile güncelle |
+| DB bağlantı hatası | Docker container çalışmıyor | `docker compose up -d postgres` ve `docker compose ps` ile kontrol et |
+| `PostGIS_version() not found` | Extension yüklenmemiş | `docker exec -it iyisiniye-postgres psql -U iyisiniye_app -d iyisiniye -c "CREATE EXTENSION postgis;"` |
+| Redis bağlantı hatası | Redis container çalışmıyor | `docker compose up -d redis` |
+| `zod/v4` import hatası | Yanlış import kullanımı | Route dosyalarında `import { z } from "zod/v4"` kullan, `"zod"` DEĞİL |
+| Migration çalışmıyor | `.env` dosyası eksik | `packages/db/.env` dosyasını `.env.example`'dan oluştur |
+| Astro build hatası | TypeScript tip hatası | `cd apps/web && pnpm typecheck` ile hataları kontrol et |
+| API proxy çalışmıyor | Astro dev server kapalı | `pnpm dev` ile tüm servisleri birlikte başlat |
+| NLP pipeline `torch` hatası | GPU driver uyumsuzluğu | CPU modu kullanılıyor, `requirements.txt`'te torch CPU versiyonu |
+| Scraper `playwright` hatası | Chromium kurulu değil | `cd scraper && source .venv/bin/activate && playwright install chromium` |
+| `ECONNREFUSED :15433` | Docker port mapping | `docker compose down && docker compose up -d` ile yeniden başlat |
+| Test mock hataları | setup.ts import sorunu | `vi.mock()` tanımlarının dosya başında olduğunu kontrol et |
+
+### 12. Geliştirme İpuçları ve Kısayollar
+
+```bash
+# Cache temizleme (tüm API cache'ini sıfırla)
+docker exec -it iyisiniye-redis redis-cli FLUSHALL
+
+# Belirli bir pattern'in cache'ini temizle
+docker exec -it iyisiniye-redis redis-cli --scan --pattern "search:*" | xargs docker exec -i iyisiniye-redis redis-cli DEL
+
+# DB'ye hızlı bağlanma
+docker exec -it iyisiniye-postgres psql -U iyisiniye_app -d iyisiniye
+
+# Tablo satır sayıları
+docker exec -it iyisiniye-postgres psql -U iyisiniye_app -d iyisiniye -c "SELECT schemaname, relname, n_live_tup FROM pg_stat_user_tables ORDER BY n_live_tup DESC;"
+
+# API loglarını izleme (development)
+# Fastify pino-pretty ile otomatik formatlı log yazar
+
+# Turborepo cache temizleme
+pnpm clean          # dist/ ve .astro/ klasörlerini siler
+npx turbo daemon stop  # Turbo daemon'ı durdur (sorunlu cache durumlarında)
+
+# Drizzle Studio ile DB'yi görsel inceleme
+cd packages/db && pnpm db:studio
+
+# TypeScript tip kontrolü (tüm paketler)
+pnpm typecheck
+
+# Tek bir paketin tiplerini kontrol et
+cd apps/api && pnpm typecheck
+
+# Git workflow
+git add -A && git commit -m "feat: açıklama"
+git push origin main
+```

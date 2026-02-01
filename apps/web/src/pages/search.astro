@@ -1,0 +1,20 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import SearchIsland from '../components/SearchIsland';
+
+// URL query parametrelerini başlangıç değeri olarak alabiliriz
+const query = Astro.url.searchParams.get('q') || '';
+---
+
+<BaseLayout title="Arama Sonuçları | iyisiniye">
+  <main class="bg-gray-50 min-h-screen pb-20">
+    <div class="bg-white border-b border-gray-200">
+      <div class="max-w-7xl mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold font-poppins text-gray-900">Ne yemek istersin?</h1>
+        <p class="text-gray-500 mt-2">En iyi lezzetleri ve mekanları keşfet.</p>
+      </div>
+    </div>
+
+    <SearchIsland client:load initialQuery={query} />
+  </main>
+</BaseLayout>

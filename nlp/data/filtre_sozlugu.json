@@ -1,0 +1,25 @@
+{
+  "icecek": ["çay", "kahve", "su", "ayran", "kola", "fanta", "sprite", "bira", "rakı", "şarap", "meyve suyu", "limonata", "şalgam", "turnip", "soda", "gazoz", "espresso", "americano", "latte", "cappuccino", "türk kahvesi", "nescafe", "frappe", "smoothie", "milkshake", "sahlep", "boza", "şerbet", "komposto", "ice tea", "mojito", "kokteyl", "votka", "viski", "cin", "tekila", "rom", "likör", "porto", "vermut", "sangria", "efes", "tuborg", "carlsberg", "heineken", "becks", "corona", "budweiser", "oralet", "bitki çayı", "yeşil çay", "papatya çayı", "ihlamur", "ada çayı", "kuşburnu çayı", "ıhlamur", "machiato", "mocha", "flat white", "filtre kahve", "cold brew", "taze sıkılmış portakal suyu", "havuç suyu", "nar suyu", "elma suyu", "kayısı suyu", "vişne suyu", "şeftali suyu", "ananas suyu", "mango suyu", "kefir", "lassi", "süt"],
+  "yan_urun": ["peçete", "plastik çatal", "kağıt bardak", "pipet", "poşet", "kutu", "ambalaj", "servis ücreti", "paket ücreti", "plastik tabak", "plastik kaşık", "plastik bıçak", "tahta çubuk", "kürdan", "ıslak mendil", "kargo ücreti", "teslimat ücreti", "bahşiş", "garsoniye", "couvert", "ekmek ücreti", "su ücreti"],
+  "yemek_kategorileri": {
+    "ana_yemek": "Ana Yemek",
+    "corba": "Çorba",
+    "salata": "Salata",
+    "tatli": "Tatlı",
+    "meze": "Meze",
+    "kahvalti": "Kahvaltı",
+    "aperatif": "Aperatif",
+    "kebap": "Kebap",
+    "pide_lahmacun": "Pide/Lahmacun",
+    "pilav": "Pilav",
+    "makarna": "Makarna",
+    "kofte": "Köfte",
+    "doner": "Döner",
+    "balik": "Balık",
+    "et": "Et Yemekleri",
+    "tavuk": "Tavuk Yemekleri",
+    "sebze": "Sebze Yemekleri",
+    "hamur_isi": "Hamur İşleri",
+    "borek": "Börek"
+  }
+}

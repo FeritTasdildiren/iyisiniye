@@ -1,0 +1,27 @@
+{
+  "name": "iyisiniye",
+  "version": "0.1.0",
+  "private": true,
+  "description": "iyisiniye - Turkiye'nin yemek kesfetme platformu",
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "clean": "turbo run clean",
+    "db:generate": "turbo run db:generate --filter=@iyisiniye/db",
+    "db:migrate": "turbo run db:migrate --filter=@iyisiniye/db",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0",
+    "prettier": "^3.4.0",
+    "eslint": "^9.17.0"
+  }
+}

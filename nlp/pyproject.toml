@@ -1,0 +1,9 @@
+[project]
+name = "iyisiniye-nlp"
+version = "0.1.0"
+description = "iyisiniye.com - Türkçe yemek yorumu NLP pipeline"
+requires-python = ">=3.9"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

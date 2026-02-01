@@ -1,0 +1,19 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import RestaurantDetailIsland from '../../components/RestaurantDetailIsland';
+
+// SSR moduna geçiş
+export const prerender = false;
+
+const { slug } = Astro.params;
+
+if (!slug) {
+  return Astro.redirect('/404');
+}
+---
+
+<BaseLayout title="Restoran Detayı | iyisiniye">
+  <main class="bg-gray-50 min-h-screen py-8">
+    <RestaurantDetailIsland client:load slug={slug} />
+  </main>
+</BaseLayout>

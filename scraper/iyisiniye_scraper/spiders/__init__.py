@@ -1,0 +1,1 @@
+"""iyisiniye Scrapy Spider Modulleri"""

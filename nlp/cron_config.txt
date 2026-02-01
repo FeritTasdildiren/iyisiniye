@@ -1,0 +1,23 @@
+# ──────────────────────────────────────────────────────────────
+# iyisiniye NLP Batch Pipeline - Cron Konfigurasyonu
+# ──────────────────────────────────────────────────────────────
+#
+# Kurulum:
+#   1. SSH ile sunucuya baglan: ssh root@157.173.116.230
+#   2. Crontab duzenle: crontab -e
+#   3. Asagidaki satiri ekle (# ile baslayanlar haric)
+#
+# Not: Sunucuda DB localhost:5433 uzerinden erisilebilir,
+#      SSH tunel gerekmez. DB_PORT=5433 olarak ayarlanmistir.
+#
+# ──────────────────────────────────────────────────────────────
+
+# Her gun saat 04:00'te NLP pipeline calistir
+# DB_HOST ve DB_PORT sunucu ortamina gore ayarlanmistir
+0 4 * * * DB_HOST=localhost DB_PORT=5433 /home/iyisiniye/nlp/run_pipeline.sh --batch-size 100 >> /home/iyisiniye/nlp/logs/cron_$(date +\%Y\%m\%d).log 2>&1
+
+# ──────────────────────────────────────────────────────────────
+# Opsiyonel: Haftada bir tam yeniden islem (cumartesi 03:00)
+# Bu satiri etkinlestirmek icin bastaki # isareti kaldirin
+# ──────────────────────────────────────────────────────────────
+# 0 3 * * 6 DB_HOST=localhost DB_PORT=5433 /home/iyisiniye/nlp/run_pipeline.sh --batch-size 500 >> /home/iyisiniye/nlp/logs/cron_weekly_$(date +\%Y\%m\%d).log 2>&1

@@ -14,7 +14,7 @@
 | **Teknoloji Stack** | Turborepo + pnpm, Astro 5 + React Islands, Fastify + Zod v4, Drizzle ORM, PostgreSQL 17, Redis, Python NLP (BERT), Scrapy |
 | **Proje Durumu** | MVP TAMAMLANDI |
 | **Son Güncelleme** | 2026-02-01 |
-| **GitHub** | _(henüz yüklenmedi)_ |
+| **GitHub** | https://github.com/FeritTasdildiren/iyisiniye |
 
 ---
 

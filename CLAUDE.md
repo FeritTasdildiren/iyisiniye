@@ -45,6 +45,105 @@ Her yapılacak iş için aşağıdaki adımlar izlenmelidir:
 3. **İŞ TAMAMLANDIĞINDA**: Durum `TAMAMLANDI` olarak güncellenir, bitiş tarihi ve sonuç yazılır
 4. **SORUN ÇIKTIĞINDA**: Durum `BLOKE` olarak güncellenir, sorun açıklaması eklenir
 
+### Çalışma Raporu Sistemi (reports.md) — ZORUNLU
+
+> **Bu talimat, bu projeye devam eden her LLM ve geliştirici için ZORUNLUDUR.**
+
+Proje üzerinde yapılan **her derleme, düzenleme, geliştirme, hata düzeltme ve konfigürasyon değişikliği** kayıt altına alınmalıdır. Bu kayıtlar proje ana klasöründeki `reports.md` dosyasında tutulur.
+
+**Amaç:** Herhangi bir çökme (crash), bağlam kaybı veya oturum kesintisi durumunda yapılan işlerin unutulmaması ve yarım kalmaması. Bu dosya, kaldığın yerden devam etmen için tek güvenilir kaynaktır.
+
+#### Dosya Konumu
+```
+iyisiniye/reports.md
+```
+
+#### Ne Zaman Yazılır?
+1. **İŞE BAŞLARKEN** — Neyi, neden yapacağını yaz (BAŞLANGIÇ kaydı)
+2. **İŞ SIRASINDA** — Önemli kararlar, karşılaşılan sorunlar, değiştirilen dosyalar (DEVAM kaydı)
+3. **İŞ BİTİNCE** — Ne yapıldı, sonuç ne oldu, test edildi mi (TAMAMLANDI kaydı)
+
+#### Kayıt Formatı
+
+Her iş birimi için aşağıdaki format kullanılır:
+
+```markdown
+---
+
+## [RAPOR-XXX] Kısa Başlık
+| Alan | Değer |
+|------|-------|
+| **Durum** | 🟡 BAŞLANDI / 🔵 DEVAM EDİYOR / 🟢 TAMAMLANDI / 🔴 BAŞARISIZ |
+| **Başlangıç** | YYYY-MM-DD HH:MM |
+| **Bitiş** | YYYY-MM-DD HH:MM (veya -) |
+| **Etkilenen Dosyalar** | dosya1.ts, dosya2.tsx, ... |
+
+### Hedef
+Bu işin amacı ve kapsamı (1-2 cümle).
+
+### Yapılanlar
+- [x] Tamamlanan adım
+- [x] Tamamlanan adım
+- [ ] Henüz yapılmayan adım (varsa)
+
+### Kararlar ve Notlar
+- Neden X yerine Y tercih edildi?
+- Karşılaşılan sorun ve çözümü
+- Dikkat edilmesi gereken bağımlılıklar
+
+### Sonuç
+İşin son durumu. Test edildi mi? Çalışıyor mu? Bilinen kısıtlamalar var mı?
+```
+
+#### Kurallar
+1. **Her işe başlamadan ÖNCE** `reports.md` dosyasına BAŞLANGIÇ kaydı yazılır — bu adım atlanamaz
+2. Rapor numarası sıralı artar: RAPOR-001, RAPOR-002, ...
+3. Dosya yoksa oluşturulur, varsa sonuna eklenir (mevcut kayıtlar asla silinmez)
+4. Durum emoji'leri ile görsel takip kolaylaştırılır:
+   - 🟡 BAŞLANDI — İşe yeni başlandı
+   - 🔵 DEVAM EDİYOR — Aktif olarak çalışılıyor
+   - 🟢 TAMAMLANDI — Başarıyla bitirildi
+   - 🔴 BAŞARISIZ — Hata ile sonlandı, neden belirtilmeli
+5. Crash sonrası bu dosyayı oku, son kaydın durumuna bak, kaldığın yerden devam et
+6. Küçük düzeltmeler (typo, tek satır değişiklik) bile kayıt altına alınır — hiçbir değişiklik kayıtsız yapılmaz
+7. `Etkilenen Dosyalar` alanı değiştirilen her dosyayı listeler (code review ve rollback için kritik)
+
+#### Örnek
+
+```markdown
+# Çalışma Raporu — iyisiniye
+
+> Bu dosya projede yapılan tüm işlerin kronolojik kaydıdır.
+> Crash veya oturum kaybında bu dosyadan devam edilir.
+
+---
+
+## [RAPOR-001] Redis cache TTL sürelerini optimize et
+| Alan | Değer |
+|------|-------|
+| **Durum** | 🟢 TAMAMLANDI |
+| **Başlangıç** | 2025-07-15 14:30 |
+| **Bitiş** | 2025-07-15 15:45 |
+| **Etkilenen Dosyalar** | apps/api/src/lib/cache.ts, apps/api/src/routes/search.ts |
+
+### Hedef
+Search endpoint'indeki cache TTL'lerini 5dk'dan 15dk'ya çıkararak gereksiz DB sorgularını azaltmak.
+
+### Yapılanlar
+- [x] cache.ts'deki DEFAULT_TTL değeri 300'den 900'e güncellendi
+- [x] search.ts'de route-specific TTL override kaldırıldı
+- [x] Mevcut testler güncellendi ve geçti
+
+### Kararlar ve Notlar
+- 15dk seçildi çünkü restoran verisi sık değişmiyor, 1 saat çok uzun olurdu
+- autocomplete endpoint'i 5dk'da bırakıldı (daha dinamik veri)
+
+### Sonuç
+Cache hit oranı %60'tan %82'ye çıktı. Tüm testler geçiyor. Bilinen kısıtlama yok.
+```
+
+---
+
 ### Kod Standartları
 
 - **Dil**: TypeScript (strict mode), Python 3.11+

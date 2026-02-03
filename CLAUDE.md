@@ -4,6 +4,25 @@
 
 ---
 
+## ⛔ Proje Hafıza Sistemi — İLK OKUNAN BÖLÜM
+
+**Bu projeye devam eden her LLM ve geliştirici aşağıdaki 3 dosyayı birlikte kullanmak ZORUNDADIR:**
+
+| Dosya | Konum | Amaç | Güncelleme Sıklığı |
+|-------|-------|------|-------------------|
+| **CLAUDE.md** | `iyisiniye/CLAUDE.md` | Projenin güncel durumu, talimatlar, teknik dokümantasyon | Her yeni özellik, endpoint, bağımlılık, mimari değişiklikte |
+| **reports.md** | `iyisiniye/reports.md` | İş bazlı kronolojik kayıt (ne yapıldı, ne zaman) | Her işe başlarken, devam ederken ve bitirince |
+| **experience.md** | `iyisiniye/experience.md` | Birikimli tecrübe ve öğrenimler (kararlar, hatalar, pattern'ler) | Her görev tamamlandığında |
+
+**Başlangıç Prosedürü (her oturum başında):**
+1. `CLAUDE.md`'yi oku — projeyi, kuralları ve güncel durumu öğren
+2. `reports.md`'yi oku — son yapılan işi ve yarım kalan şeyleri kontrol et
+3. `experience.md`'yi oku — önceki tecrübelerden faydalan, aynı hataları tekrarlama
+
+**⚠️ Bu dosyalar olmadan geliştirmeye başlama. Yoksa oluştur, varsa oku.**
+
+---
+
 ## Proje Bilgileri
 
 | Alan | Değer |
@@ -141,6 +160,93 @@ Search endpoint'indeki cache TTL'lerini 5dk'dan 15dk'ya çıkararak gereksiz DB 
 ### Sonuç
 Cache hit oranı %60'tan %82'ye çıktı. Tüm testler geçiyor. Bilinen kısıtlama yok.
 ```
+
+---
+
+### Tecrübe Kayıt Sistemi (experience.md) — ZORUNLU
+
+> **Her görev tamamlandığında öğrenimler bu dosyaya yazılır. Birikimli bir bilgi bankasıdır, asla silinmez.**
+
+**Amaç:** Aynı hataları tekrarlamamak, iyi çalışan pattern'leri hatırlamak ve projeye özgü bilgi birikimini korumak.
+
+#### Dosya Konumu
+```
+iyisiniye/experience.md
+```
+
+#### Kayıt Formatı
+```markdown
+## [Tarih] - [Kısa Başlık]
+
+### Görev: [Ne yapıldığı]
+- [KARAR] Ne kararı verildi → Sonuç ne oldu
+- [HATA] Hangi hata yapıldı → Nasıl çözüldü
+- [PATTERN] Hangi yaklaşım işe yaradı → Neden
+- [UYARI] Nelere dikkat edilmeli → Neden
+```
+
+#### Kurallar
+1. Her görev tamamlandığında en az 1 tecrübe kaydı yazılır — bu zorunludur
+2. Dosya yoksa oluşturulur, varsa sonuna eklenir (mevcut kayıtlar asla silinmez)
+3. Sadece gerçek değer taşıyan bilgiler yazılır ("npm install çalıştırdım" gibi kayıtlar değersizdir)
+4. 4 etiket kullanılır: `[KARAR]`, `[HATA]`, `[PATTERN]`, `[UYARI]`
+5. Her oturum başında bu dosya okunarak önceki tecrübelerden faydalanılır
+6. Crash sonrası bu dosya context'e yüklenerek bilgi kaybı önlenir
+
+---
+
+### ⛔ Sürekli Güncelleme Talimatları — ZORUNLU
+
+**Bu CLAUDE.md dosyası canlı bir dokümandır. Proje geliştikçe bu dosya da güncellenmelidir.**
+
+Aşağıdaki değişikliklerden herhangi biri yapıldığında, ilgili CLAUDE.md bölümü **aynı oturumda** güncellenir:
+
+| Değişiklik Türü | Güncellenecek CLAUDE.md Bölümü |
+|-----------------|-------------------------------|
+| Yeni API endpoint eklendi | Detaylı Teknik Dokümantasyon → 6. API Dokümantasyonu |
+| Yeni ortam değişkeni eklendi | Detaylı Teknik Dokümantasyon → 3. Ortam Değişkenleri |
+| Yeni bağımlılık (npm/pip) eklendi | Detaylı Teknik Dokümantasyon → 1. Ön Gereksinimler |
+| Veritabanı şeması değişti | Detaylı Teknik Dokümantasyon → 4. Veritabanı Yönetimi |
+| Yeni servis/port eklendi | Detaylı Teknik Dokümantasyon → 5. Servisleri Çalıştırma |
+| Mimari karar alındı | Mimari Kararlar |
+| Yeni teknik borç oluştu | Bilinen Sorunlar ve Teknik Borç |
+| Deployment süreci değişti | Detaylı Teknik Dokümantasyon → 10. Deployment |
+| Yeni 3. parti servis entegre edildi | Detaylı Teknik Dokümantasyon → 8. Üçüncü Parti Servisler |
+| Klasör yapısında önemli değişiklik | Detaylı Teknik Dokümantasyon → 7. Proje Klasör Yapısı |
+| Teknoloji stack'e ekleme/değişiklik | Teknoloji Kararları tablosu |
+
+**Kural:** Kod değişikliği yapıp CLAUDE.md'yi güncellememek YASAKTIR. Eğer "bu değişiklik dokümantasyonu etkiler mi?" sorusunun cevabı "evet" veya "belki" ise, GÜNCELLE.
+
+---
+
+### ⛔ Git & Deployment Güvenlik Kuralları
+
+**Git repoları özeldir (private), tüm proje dosyaları güvenle barındırılabilir. Ancak sunucuya gönderim konusunda dikkatli olunmalıdır.**
+
+#### Git'e Yüklenmeli (repo'da olmalı)
+- `CLAUDE.md` — ✅ Git'e yüklenir
+- `reports.md` — ✅ Git'e yüklenir
+- `experience.md` — ✅ Git'e yüklenir
+- `.env.example` — ✅ Git'e yüklenir (gerçek değerler olmadan)
+- Tüm kaynak kod — ✅ Git'e yüklenir
+
+#### Sunucuya Gönderilmemeli (deployment'ta hariç tutulmalı)
+Aşağıdaki dosyalar **sunucuya/production ortamına deploy edilmemelidir**:
+
+```
+# Deployment sırasında hariç tutulacak dosyalar
+CLAUDE.md
+reports.md
+experience.md
+```
+
+**Nasıl hariç tutulur:**
+- **rsync ile deploy:** `--exclude='CLAUDE.md' --exclude='reports.md' --exclude='experience.md'`
+- **Docker:** `.dockerignore` dosyasına ekle
+- **CI/CD pipeline:** Build artifact'larından çıkar
+- **CloudPanel/FTP:** Manuel olarak yükleme
+
+**Kural:** Bu dosyalar geliştirme ve bilgi yönetimi içindir. Production sunucusunda yer kaplamasına ve potansiyel bilgi sızıntısına gerek yoktur.
 
 ---
 

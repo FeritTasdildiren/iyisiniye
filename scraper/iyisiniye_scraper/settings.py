@@ -42,8 +42,8 @@ CONCURRENT_REQUESTS = 8
 # Tek bir alan adina ayni anda yapilabilecek istek sayisi
 CONCURRENT_REQUESTS_PER_DOMAIN = 2
 
-# Tek bir IP adresine ayni anda yapilabilecek istek sayisi
-CONCURRENT_REQUESTS_PER_IP = 2
+# Not: CONCURRENT_REQUESTS_PER_IP, Scrapy 2.14+ DownloaderAwarePriorityQueue
+# ile uyumsuz. IP bazli limiting AdaptiveRateLimiter middleware'inde yapiliyor.
 
 # ---- AutoThrottle Ayarlari ----
 # Sunucu yanit surelerine gore otomatik hiz ayarlama

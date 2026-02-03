@@ -249,36 +249,51 @@ _TURKCE_KARAKTER_HARITASI = str.maketrans({
 })
 
 
-def _slug_olustur(metin: str) -> str:
+def _slug_olustur(metin: str, ilce: str = "", source_id: str = "") -> str:
     """
     Turkceden URL-dostu slug olusturur.
 
     Islem adimlari:
-        1. Turkce karakterleri ASCII karsiliklarina donusturur
-        2. Unicode normalizasyonu uygular (aksanlari kaldirir)
-        3. Kucuk harfe cevirir
-        4. Alfanumerik olmayan karakterleri tire ile degistirir
-        5. Ard arda tireleri teke dusurur
-        6. Bas ve sondaki tireleri siler
+        1. Ilce varsa metne ekler (benzersizlik icin)
+        2. Turkce karakterleri ASCII karsiliklarina donusturur
+        3. Unicode normalizasyonu uygular (aksanlari kaldirir)
+        4. Kucuk harfe cevirir
+        5. Alfanumerik olmayan karakterleri tire ile degistirir
+        6. Ard arda tireleri teke dusurur
+        7. Bas ve sondaki tireleri siler
 
     Args:
         metin: Orijinal restoran adi
+        ilce: Ilce adi (opsiyonel, slug benzersizligi icin)
+        source_id: Kaynak ID (bos slug durumunda fallback)
 
     Returns:
         URL-dostu slug dizesi
     """
-    # Turkce karakter donusumu
-    slug = metin.translate(_TURKCE_KARAKTER_HARITASI)
-    # Unicode normalizasyon (aksanlari kaldir)
-    slug = unicodedata.normalize("NFKD", slug).encode("ascii", "ignore").decode("ascii")
-    # Kucuk harfe cevir
-    slug = slug.lower()
-    # Alfanumerik olmayanlari tire yap
-    slug = re.sub(r"[^a-z0-9]+", "-", slug)
-    # Ard arda tireleri teke dusur
-    slug = re.sub(r"-+", "-", slug)
-    # Bas ve sondaki tireleri sil
-    slug = slug.strip("-")
+    # Once sadece restoran adindan slug olustur (ilcesiz)
+    isim_slug = metin.translate(_TURKCE_KARAKTER_HARITASI)
+    isim_slug = unicodedata.normalize("NFKD", isim_slug).encode("ascii", "ignore").decode("ascii")
+    isim_slug = isim_slug.lower()
+    isim_slug = re.sub(r"[^a-z0-9]+", "-", isim_slug)
+    isim_slug = re.sub(r"-+", "-", isim_slug).strip("-")
+
+    # Eger restoran adi Latin karaktere donusmuyorsa (Arapca, Cince vb.)
+    # source_id'yi isim olarak kullan
+    if not isim_slug and source_id:
+        isim_slug = re.sub(r"[^a-z0-9]+", "-", source_id.lower()).strip("-")
+
+    # Ilce varsa slug'a ekle
+    if ilce:
+        ilce_slug = ilce.translate(_TURKCE_KARAKTER_HARITASI)
+        ilce_slug = ilce_slug.lower()
+        ilce_slug = re.sub(r"[^a-z0-9]+", "-", ilce_slug).strip("-")
+        if ilce_slug:
+            slug = f"{isim_slug}-{ilce_slug}" if isim_slug else ilce_slug
+        else:
+            slug = isim_slug
+    else:
+        slug = isim_slug
+
     return slug
 
 
@@ -514,7 +529,11 @@ class DatabasePipeline:
         import psycopg2.extras
 
         # Slug olustur (item'da varsa onu kullan, yoksa isimden turet)
-        slug = veri.get("slug") or _slug_olustur(veri["name"])
+        slug = veri.get("slug") or _slug_olustur(
+            veri["name"],
+            ilce=veri.get("district", ""),
+            source_id=veri.get("source_id", ""),
+        )
 
         # cuisine_types list -> PostgreSQL text[] donusumu
         mutfak_turleri = veri.get("cuisine_types")

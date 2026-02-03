@@ -158,14 +158,17 @@ class BaseSpider(scrapy.Spider):
         )
 
     @staticmethod
-    def generate_slug(text: str) -> str:
+    def generate_slug(text: str, district: str = "", source_id: str = "") -> str:
         """
         Metinden URL-dostu slug olusturur.
 
         Turkce karakterleri donusturur, ozel karakterleri kaldirir.
+        Ilce bilgisi varsa slug'a eklenir (benzersizlik icin).
 
         Args:
             text: Slug'a donusturulecek metin
+            district: Ilce adi (opsiyonel, slug benzersizligi icin)
+            source_id: Kaynak ID (bos slug durumunda fallback)
 
         Returns:
             URL-dostu slug dizesi
@@ -179,19 +182,32 @@ class BaseSpider(scrapy.Spider):
             "ş": "s", "Ş": "S",
             "ü": "u", "Ü": "U",
         }
+
+        # Once sadece restoran adindan slug olustur (ilcesiz)
+        isim_slug = text
         for tr_char, en_char in tr_map.items():
-            text = text.replace(tr_char, en_char)
+            isim_slug = isim_slug.replace(tr_char, en_char)
+        isim_slug = isim_slug.lower()
+        isim_slug = re.sub(r"[^a-z0-9]+", "-", isim_slug)
+        isim_slug = isim_slug.strip("-")
+        isim_slug = re.sub(r"-+", "-", isim_slug)
 
-        # Kucuk harfe cevir
-        text = text.lower()
-        # Harf ve rakam olmayanlari tire ile degistir
-        text = re.sub(r"[^a-z0-9]+", "-", text)
-        # Bastaki ve sondaki tireleri kaldir
-        text = text.strip("-")
-        # Art arda gelen tireleri tekle
-        text = re.sub(r"-+", "-", text)
+        # Eger restoran adi Latin karaktere donusmuyorsa
+        # source_id'yi isim olarak kullan
+        if not isim_slug and source_id:
+            isim_slug = re.sub(r"[^a-z0-9]+", "-", source_id.lower()).strip("-")
 
-        return text
+        # Ilce varsa slug'a ekle
+        if district:
+            ilce_slug = district
+            for tr_char, en_char in tr_map.items():
+                ilce_slug = ilce_slug.replace(tr_char, en_char)
+            ilce_slug = ilce_slug.lower()
+            ilce_slug = re.sub(r"[^a-z0-9]+", "-", ilce_slug).strip("-")
+            if ilce_slug:
+                return f"{isim_slug}-{ilce_slug}" if isim_slug else ilce_slug
+
+        return isim_slug
 
     def build_restaurant_item(
         self,
@@ -221,7 +237,7 @@ class BaseSpider(scrapy.Spider):
         """
         item = RestaurantItem()
         item["name"] = name
-        item["slug"] = self.generate_slug(name)
+        item["slug"] = self.generate_slug(name, district=district, source_id=source_id)
         item["address"] = address
         item["district"] = district
         item["neighborhood"] = neighborhood

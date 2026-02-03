@@ -404,9 +404,10 @@ class SkyStoneProxyMiddleware:
             if not ip or not port:
                 return None
 
-            # Desteklenen protokoller
-            if protocol not in ("http", "https", "socks4", "socks5"):
-                protocol = "http"
+            # Playwright SOCKS proxy ile sorun yasayabiliyor,
+            # sadece HTTP/HTTPS proxy'leri kabul et
+            if protocol not in ("http", "https"):
+                return None
 
             return f"{protocol}://{ip}:{port}"
 

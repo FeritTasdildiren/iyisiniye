@@ -23,11 +23,15 @@ Anti-Bot Onlemleri:
 
 import asyncio
 import math
+import json
 import random
 import re
+import time as _time
+from collections import defaultdict
 from typing import Any, Generator
 from urllib.parse import unquote
 
+import requests as http_requests
 import scrapy
 from loguru import logger
 from scrapy.http import Response
@@ -36,9 +40,141 @@ from ..items import RestaurantItem, ReviewItem
 from .base_spider import BaseSpider
 
 
+# --- Istanbul Ilce Koordinatlari (yaklasik merkez) ---
+# Koordinat bazli ilce tespiti icin kullanilir
+
+ISTANBUL_ILCE_KOORDINATLARI: dict[str, tuple[float, float]] = {
+    "adalar": (40.8764, 29.0906),
+    "arnavutkoy": (41.1848, 28.7397),
+    "atasehir": (40.9923, 29.1124),
+    "avcilar": (40.9797, 28.7216),
+    "bagcilar": (41.0346, 28.8568),
+    "bahcelievler": (41.0015, 28.8601),
+    "bakirkoy": (40.9811, 28.8770),
+    "basaksehir": (41.0934, 28.8024),
+    "bayrampasa": (41.0410, 28.9082),
+    "besiktas": (41.0420, 29.0060),
+    "beykoz": (41.1270, 29.0950),
+    "beylikduzu": (40.9835, 28.6439),
+    "beyoglu": (41.0370, 28.9770),
+    "buyukcekmece": (41.0200, 28.5850),
+    "catalca": (41.1433, 28.4600),
+    "cekmekoy": (41.0350, 29.1700),
+    "esenler": (41.0430, 28.8760),
+    "esenyurt": (41.0280, 28.6770),
+    "eyupsultan": (41.0820, 28.9330),
+    "fatih": (41.0096, 28.9490),
+    "gaziosmanpasa": (41.0665, 28.9104),
+    "gungoren": (41.0150, 28.8830),
+    "kadikoy": (40.9817, 29.0636),
+    "kagithane": (41.0800, 28.9710),
+    "kartal": (40.8900, 29.1910),
+    "kucukcekmece": (41.0000, 28.7800),
+    "maltepe": (40.9340, 29.1340),
+    "pendik": (40.8760, 29.2600),
+    "sancaktepe": (41.0000, 29.2200),
+    "sariyer": (41.1670, 29.0500),
+    "silivri": (41.0750, 28.2470),
+    "sultanbeyli": (40.9600, 29.2630),
+    "sultangazi": (41.0980, 28.8710),
+    "sile": (41.1780, 29.6100),
+    "sisli": (41.0600, 28.9870),
+    "tuzla": (40.8180, 29.3000),
+    "umraniye": (41.0270, 29.0930),
+    "uskudar": (41.0234, 29.0156),
+    "zeytinburnu": (40.9940, 28.9050),
+}
+
+# Turkce ilce adi → normalize edilmis ilce adi eslestirmesi
+# (kart metninde Turkce karakterli ilce adlari icin)
+_ILCE_METIN_ESLESTIRME: dict[str, str] = {
+    "kadıköy": "kadikoy", "kadikoy": "kadikoy",
+    "beşiktaş": "besiktas", "besiktas": "besiktas",
+    "şişli": "sisli", "sisli": "sisli",
+    "beyoğlu": "beyoglu", "beyoglu": "beyoglu",
+    "üsküdar": "uskudar", "uskudar": "uskudar",
+    "sarıyer": "sariyer", "sariyer": "sariyer",
+    "bakırköy": "bakirkoy", "bakirkoy": "bakirkoy",
+    "ataşehir": "atasehir", "atasehir": "atasehir",
+    "ümraniye": "umraniye", "umraniye": "umraniye",
+    "küçükçekmece": "kucukcekmece", "kucukcekmece": "kucukcekmece",
+    "büyükçekmece": "buyukcekmece", "buyukcekmece": "buyukcekmece",
+    "başakşehir": "basaksehir", "basaksehir": "basaksehir",
+    "bayrampaşa": "bayrampasa", "bayrampasa": "bayrampasa",
+    "bağcılar": "bagcilar", "bagcilar": "bagcilar",
+    "bahçelievler": "bahcelievler", "bahcelievler": "bahcelievler",
+    "güngören": "gungoren", "gungoren": "gungoren",
+    "gaziosmanpaşa": "gaziosmanpasa", "gaziosmanpasa": "gaziosmanpasa",
+    "kağıthane": "kagithane", "kagithane": "kagithane",
+    "eyüpsultan": "eyupsultan", "eyupsultan": "eyupsultan",
+    "sultangazi": "sultangazi",
+    "çekmeköy": "cekmekoy", "cekmekoy": "cekmekoy",
+    "sancaktepe": "sancaktepe",
+    "sultanbeyli": "sultanbeyli",
+    "beylikdüzü": "beylikduzu", "beylikduzu": "beylikduzu",
+    "esenyurt": "esenyurt",
+    "avcılar": "avcilar", "avcilar": "avcilar",
+    "arnavutköy": "arnavutkoy", "arnavutkoy": "arnavutkoy",
+    "çatalca": "catalca", "catalca": "catalca",
+    "silivri": "silivri",
+    "şile": "sile", "sile": "sile",
+    "zeytinburnu": "zeytinburnu",
+    "esenler": "esenler",
+    "pendik": "pendik",
+    "kartal": "kartal",
+    "maltepe": "maltepe",
+    "tuzla": "tuzla",
+    "beykoz": "beykoz",
+    "adalar": "adalar",
+    "fatih": "fatih",
+}
+
+
+def _ilce_belirle_koordinat(lat: float, lng: float) -> str:
+    """
+    Koordinattan en yakin Istanbul ilcesini belirler.
+
+    Basit oklid mesafesi ile en yakin ilce merkezi bulunur.
+
+    Args:
+        lat: Enlem
+        lng: Boylam
+
+    Returns:
+        Normalize edilmis ilce adi (orn: "kadikoy", "besiktas")
+    """
+    min_mesafe = float("inf")
+    en_yakin = ""
+    for ilce, (ilat, ilng) in ISTANBUL_ILCE_KOORDINATLARI.items():
+        mesafe = (lat - ilat) ** 2 + (lng - ilng) ** 2
+        if mesafe < min_mesafe:
+            min_mesafe = mesafe
+            en_yakin = ilce
+    return en_yakin
+
+
+def _ilce_belirle_metin(adres: str) -> str:
+    """
+    Adres metninden ilce adini cikarir.
+
+    Args:
+        adres: Restoran adres metni
+
+    Returns:
+        Normalize edilmis ilce adi veya bos string
+    """
+    if not adres:
+        return ""
+    adres_kucuk = adres.lower()
+    for metin, ilce in _ILCE_METIN_ESLESTIRME.items():
+        if metin in adres_kucuk:
+            return ilce
+    return ""
+
+
 # --- Playwright sayfa baslatma callback'i ---
 
-async def stealth_init_callback(page: Any) -> None:
+async def stealth_init_callback(page: Any, request: Any = None) -> None:
     """
     Playwright sayfasi olusturuldugunda stealth ayarlarini uygular.
 
@@ -97,21 +233,39 @@ class GoogleMapsListSpider(BaseSpider):
     platform_name = "google_maps"
 
     # robots.txt Google Maps icin devre disi (JS uygulamasi)
+    # Proxy uzerinden yeniden deneme limiti (grid noktasi basina)
+    MAX_PROXY_RETRY = 100
+
+    # 0 restoran bulunan grid icin ek deneme sayisi
+    MAX_EMPTY_RETRY = 2  # toplam 3 deneme (1 orijinal + 2 ek)
+
+    # Proxy rate limit: ayni proxy 1 dakikada max bu kadar kullanilabilir
+    PROXY_RATE_LIMIT = 2
+    PROXY_RATE_WINDOW = 60  # saniye
+
+    # --- Alt-Grid Sistemi ---
+    # Bu sayi ve uzerinde kart bulunan gridler 2x2 alt-grid'e bolunur
+    CARD_LIMIT_THRESHOLD = 100
+    # Alt-grid'ler arasi yuzdelik ortusme (kenar kayiplarini onlemek icin)
+    ALT_GRID_OVERLAP = 0.15
+    # Google Maps maksimum zoom seviyesi (dogal derinlik siniri)
+    MAX_ZOOM = 21
+
     custom_settings: dict[str, Any] = {
         "ROBOTSTXT_OBEY": False,
-        "CONCURRENT_REQUESTS": 1,
-        "CONCURRENT_REQUESTS_PER_DOMAIN": 1,
+        "CONCURRENT_REQUESTS": 3,
+        "CONCURRENT_REQUESTS_PER_DOMAIN": 3,
         "DOWNLOAD_DELAY": 5,
-        "DOWNLOAD_TIMEOUT": 60,
-        "PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT": 45000,
-        "PLAYWRIGHT_CONTEXTS": {
-            "default": {
-                "viewport": {"width": 1920, "height": 1080},
-                "locale": "tr-TR",
-                "timezone_id": "Europe/Istanbul",
-                "java_script_enabled": True,
-                "bypass_csp": False,
-            },
+        "DOWNLOAD_TIMEOUT": 10,
+        "PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT": 15000,
+        "PLAYWRIGHT_CONTEXTS": {},  # Context'ler request bazli olusturulacak
+        # Proxy spider tarafindan playwright_context_kwargs ile yonetiliyor,
+        # Scrapy middleware'i devre disi.
+        "DOWNLOADER_MIDDLEWARES": {
+            "scrapy.downloadermiddlewares.useragent.UserAgentMiddleware": None,
+            "iyisiniye_scraper.middlewares.RotatingUserAgentMiddleware": 400,
+            "iyisiniye_scraper.middlewares.SkyStoneProxyDownloaderMiddleware": None,
+            "scrapy.downloadermiddlewares.retry.RetryMiddleware": 500,
         },
     }
 
@@ -126,9 +280,12 @@ class GoogleMapsListSpider(BaseSpider):
     DEFAULT_MAX_SCROLL = 60
     DEFAULT_ZOOM = 15
 
+    # --- Checkpoint ---
+    CHECKPOINT_DOSYA = "/opt/iyisiniye/scraper/checkpoint_grids.json"
+
     # --- Arama URL Sablonu ---
     SEARCH_URL_TEMPLATE = (
-        "https://www.google.com/maps/search/restoran/@{lat},{lng},{zoom}z"
+        "https://www.google.com/maps/search/restoran/@{lat},{lng},{zoom}z?hl=tr"
     )
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -163,13 +320,280 @@ class GoogleMapsListSpider(BaseSpider):
             "ardisik_hata": 0,
         })
 
+        # Proxy havuzu
+        self.proxy_pool: list[str] = []
+        self._basarili_proxyler: list[str] = []  # Calistigi kanitlanmis proxy'ler
+        self._proxy_kullanim: defaultdict[str, list[float]] = defaultdict(list)  # Rate limit
+        self._context_sayaci: int = 0
+        self._proxy_havuzu_doldur()
+
         # Grid noktalarini hesapla
         self.grid_noktalari: list[tuple[float, float]] = self._grid_noktalari_hesapla()
+
+        # Alt-grid sistemi
+        self.scrape_stats.update({
+            "alt_grid_olusturuldu": 0,
+            "alt_grid_tamamlandi": 0,
+            "alt_grid_max_derinlik": 0,
+        })
+        # Dogrulama gecisi kontrolu
+        self._dogrulama_gecisi_aktif: bool = False
+        self._ana_tarama_tamamlandi: bool = False
+        # Ana taramada kac grid tamamlandi (alt-grid'ler haric)
+        self._tamamlanan_ana_gridler: int = 0
+        # Bekleyen alt-grid sayaci (0 oldugunda ana tarama bitmis demek)
+        self._bekleyen_alt_gridler: int = 0
+
+        # Checkpoint: tamamlanan grid koordinatlari
+        self._checkpoint_yukle()
+
+        # Alt-grid parent takibi: parent_key -> bekleyen alt-grid sayisi
+        self._parent_bekleyen: defaultdict[str, int] = defaultdict(int)
+
+        # DB'den mevcut source_id'leri yukle (restart dedup)
+        self._db_dedup_yukle()
 
         self.spider_logger.info(
             f"GoogleMapsListSpider baslatildi: "
             f"grid={self.grid_size}x{self.grid_size} ({len(self.grid_noktalari)} nokta), "
-            f"zoom={self.zoom}, maks_scroll={self.max_scroll}"
+            f"zoom={self.zoom}, maks_scroll={self.max_scroll}, "
+            f"proxy_havuzu={len(self.proxy_pool)}"
+        )
+
+    def _checkpoint_yukle(self) -> None:
+        """Checkpoint dosyasindan tamamlanan grid koordinatlarini yukler."""
+        self._tamamlanan_gridler: set[str] = set()
+        try:
+            with open(self.CHECKPOINT_DOSYA, "r") as f:
+                veri = json.load(f)
+                self._tamamlanan_gridler = set(veri.get("gridler", []))
+                kayitli = veri.get("restoranlar", [])
+                self.gorulmus_restoranlar.update(kayitli)
+            self.spider_logger.info(
+                f"Checkpoint yuklendi: {len(self._tamamlanan_gridler)} grid, {len(kayitli)} restoran"
+            )
+        except FileNotFoundError:
+            self.spider_logger.info("Checkpoint dosyasi bulunamadi, sifirdan baslanacak")
+        except Exception as e:
+            self.spider_logger.warning(f"Checkpoint yukleme hatasi: {e}")
+
+    def _checkpoint_kaydet(self) -> None:
+        """Tamamlanan grid koordinatlarini checkpoint dosyasina yazar."""
+        try:
+            veri = {
+                "gridler": list(self._tamamlanan_gridler),
+                "restoranlar": list(self.gorulmus_restoranlar),
+            }
+            with open(self.CHECKPOINT_DOSYA, "w") as f:
+                json.dump(veri, f)
+        except Exception as e:
+            self.spider_logger.warning(f"Checkpoint kaydetme hatasi: {e}")
+
+    def _grid_key(self, lat: float, lng: float) -> str:
+        """Grid koordinatlarindan benzersiz key olusturur."""
+        return "%.6f,%.6f" % (lat, lng)
+
+    def _db_dedup_yukle(self) -> None:
+        """DB'den mevcut source_id'leri yukleyerek dedup setini doldurur."""
+        import os
+        try:
+            import psycopg2
+            db_url = os.getenv(
+                "DATABASE_URL",
+                "postgresql://iyisiniye_app:IyS2026SecureDB@localhost:5433/iyisiniye",
+            )
+            conn = psycopg2.connect(db_url)
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT source_id FROM restaurant_platforms WHERE platform = 'google_maps'"
+            )
+            rows = cur.fetchall()
+            for row in rows:
+                if row[0]:
+                    self.gorulmus_restoranlar.add(row[0])
+            cur.close()
+            conn.close()
+            self.spider_logger.info(f"DB'den {len(rows)} source_id yuklendi (dedup)")
+        except Exception as e:
+            self.spider_logger.warning(f"DB dedup yukleme hatasi (devam ediliyor): {e}")
+
+    def _proxy_havuzu_doldur(self) -> None:
+        """SkyStone Proxy API'den HTTP proxy listesini ceker."""
+        import os
+        api_url = os.getenv("PROXY_API_URL", "http://127.0.0.1:8000")
+        api_key = os.getenv("PROXY_API_KEY", "")
+
+        for tier in ("high", "medium", "low"):
+            try:
+                resp = http_requests.get(
+                    f"{api_url}/api/v1/proxies/{tier}",
+                    params={"limit": 500},
+                    headers={"X-API-Key": api_key},
+                    timeout=15,
+                )
+                resp.raise_for_status()
+                veri = resp.json()
+                if veri.get("success"):
+                    for p in veri.get("proxies", []):
+                        proto = p.get("protocol", "http").lower()
+                        ip = p.get("ip")
+                        port = p.get("port")
+                        if proto in ("http", "https") and ip and port:
+                            self.proxy_pool.append(f"{proto}://{ip}:{port}")
+            except Exception as e:
+                self.spider_logger.warning(f"Proxy API hatasi ({tier}): {e}")
+
+        if not self.proxy_pool:
+            raise RuntimeError(
+                "Proxy havuzu bos! Sunucu IP'sinden istek yapilamaz. "
+                "PROXY_API_URL ve PROXY_API_KEY ayarlarini kontrol edin."
+            )
+
+        random.shuffle(self.proxy_pool)
+        self._son_proxy_yenileme: float = _time.time()
+        self.PROXY_YENILEME_PERIYODU: int = 1800  # 30 dakika
+        self.spider_logger.info(f"Proxy havuzu dolduruldu: {len(self.proxy_pool)} HTTP proxy")
+
+    def _rate_limit_uygun(self, proxy_url: str) -> bool:
+        """Proxy'nin rate limit'e uygun olup olmadigini kontrol eder."""
+        simdi = _time.time()
+        kullanim = self._proxy_kullanim[proxy_url]
+        # Eski kayitlari temizle
+        kullanim = [t for t in kullanim if simdi - t < self.PROXY_RATE_WINDOW]
+        self._proxy_kullanim[proxy_url] = kullanim
+        return len(kullanim) < self.PROXY_RATE_LIMIT
+
+    def _proxy_kullanim_kaydet(self, proxy_url: str) -> None:
+        """Proxy kullanim zamanini kaydeder."""
+        self._proxy_kullanim[proxy_url].append(_time.time())
+
+    def _proxy_basarili_isaretle(self, proxy_url: str) -> None:
+        """Basarili olan proxy'yi oncelikli listeye ekler."""
+        if proxy_url not in self._basarili_proxyler:
+            self._basarili_proxyler.append(proxy_url)
+            self.spider_logger.debug(
+                f"Proxy basarili listesine eklendi: {proxy_url} "
+                f"(toplam {len(self._basarili_proxyler)} basarili)"
+            )
+
+    def _proxy_sec(self, hariç_tutulanlar: set[str] | None = None) -> str:
+        """
+        Havuzdan proxy secer. Oncelik sirasi:
+        1. Basarili proxy'ler (rate limit uygunsa)
+        2. Genel havuz (rate limit uygunsa)
+        3. Havuz yenile + tekrar dene
+        4. Son care: rate limit'i goz ardi et
+        """
+        excluded = hariç_tutulanlar or set()
+
+        # 0. Periyodik yenileme kontrolu
+        if _time.time() - self._son_proxy_yenileme > self.PROXY_YENILEME_PERIYODU:
+            eski_sayi = len(self.proxy_pool)
+            self._proxy_havuzu_doldur()
+            self._son_proxy_yenileme = _time.time()
+            self.spider_logger.info(
+                f"Periyodik proxy yenileme: {eski_sayi} -> {len(self.proxy_pool)} proxy"
+            )
+
+        # 1. Basarili proxy'lerden sec (rate limit kontrolu ile)
+        basarili_adaylar = [
+            p for p in self._basarili_proxyler
+            if p not in excluded and self._rate_limit_uygun(p)
+        ]
+        if basarili_adaylar:
+            proxy = random.choice(basarili_adaylar)
+            self._proxy_kullanim_kaydet(proxy)
+            return proxy
+
+        # 2. Genel havuzdan sec (rate limit kontrolu ile)
+        adaylar = [
+            p for p in self.proxy_pool
+            if p not in excluded and self._rate_limit_uygun(p)
+        ]
+
+        # Adaylar azaldiysa havuzu yenile
+        if len(adaylar) < max(len(self.proxy_pool) // 4, 5):
+            self.spider_logger.info(
+                f"Aday proxy az kaldi ({len(adaylar)}/{len(self.proxy_pool)}), "
+                f"havuz yenileniyor..."
+            )
+            self._proxy_havuzu_doldur()
+            adaylar = [
+                p for p in self.proxy_pool
+                if p not in excluded and self._rate_limit_uygun(p)
+            ]
+
+        # 3. Hala aday yoksa hariç tutulanlari temizle + havuzu yenile
+        if not adaylar:
+            self.spider_logger.warning(
+                "Tum proxy'ler tukendi/rate limited. Havuz yenileniyor..."
+            )
+            self._proxy_havuzu_doldur()
+            adaylar = [
+                p for p in self.proxy_pool if self._rate_limit_uygun(p)
+            ]
+
+        # 4. Son care: rate limit'i goz ardi et
+        if not adaylar:
+            self.spider_logger.warning("Rate limit gevsetiliyor, tum havuz kullaniliyor")
+            adaylar = [p for p in self.proxy_pool if p not in excluded]
+            if not adaylar:
+                adaylar = list(self.proxy_pool)
+
+        proxy = random.choice(adaylar)
+        self._proxy_kullanim_kaydet(proxy)
+        return proxy
+
+    def _yeni_context_adi(self) -> str:
+        """Her request icin benzersiz bir Playwright context adi uretir."""
+        self._context_sayaci += 1
+        return f"ctx_{self._context_sayaci}"
+
+    def _proxy_ile_request_olustur(
+        self, url: str, idx: int, lat: float, lng: float, retry: int = 0,
+        basarisiz_proxyler: set[str] | None = None,
+        empty_retry_count: int = 0,
+    ) -> scrapy.Request:
+        """Belirtilen URL icin proxy atanmis bir Playwright request olusturur."""
+        if basarisiz_proxyler is None:
+            basarisiz_proxyler = set()
+
+        proxy_url = self._proxy_sec(hariç_tutulanlar=basarisiz_proxyler)
+        context_adi = self._yeni_context_adi()
+
+        self.spider_logger.info(
+            f"Proxy atandi: {proxy_url} (deneme {retry + 1}/{self.MAX_PROXY_RETRY}) "
+            f"-> grid {idx + 1}"
+        )
+
+        return scrapy.Request(
+            url=url,
+            callback=self.parse,
+            meta={
+                "playwright": True,
+                "playwright_context": context_adi,
+                "playwright_context_kwargs": {
+                    "proxy": {"server": proxy_url},
+                    "viewport": {"width": 1920, "height": 1080},
+                    "locale": "tr-TR",
+                    "timezone_id": "Europe/Istanbul",
+                    "java_script_enabled": True,
+                },
+                "playwright_include_page": True,
+                "playwright_page_init_callback": stealth_init_callback,
+                "playwright_page_goto_kwargs": {
+                    "wait_until": "domcontentloaded",
+                },
+                "grid_index": idx,
+                "grid_lat": lat,
+                "grid_lng": lng,
+                "_proxy_url": proxy_url,
+                "_retry_count": retry,
+                "_basarisiz_proxyler": basarisiz_proxyler,
+                "_empty_retry_count": empty_retry_count,
+            },
+            dont_filter=True,
+            errback=self.hata_yakala,
         )
 
     def _grid_noktalari_hesapla(self) -> list[tuple[float, float]]:
@@ -208,14 +632,125 @@ class GoogleMapsListSpider(BaseSpider):
 
         return noktalar
 
+    def _alt_grid_noktalari_hesapla(
+        self, merkez_lat: float, merkez_lng: float, ust_zoom: int
+    ) -> list[tuple[float, float, int]]:
+        """
+        Bir grid noktasini 2x2 alt-grid'e boler.
+
+        Ust grid'in kapsama alanini tamamen kapsamak icin %15 overlap
+        eklenir. Boylece kenar bolgelerdeki restoranlar kacmaz.
+
+        Args:
+            merkez_lat: Ust grid'in merkez enlemi
+            merkez_lng: Ust grid'in merkez boylami
+            ust_zoom: Ust grid'in zoom seviyesi
+
+        Returns:
+            [(lat, lng, zoom), ...] — 4 alt-grid noktasi
+        """
+        yeni_zoom = ust_zoom + 1
+
+        # Google Maps'te zoom seviyesine gore yaklasik kapsam (derece)
+        # zoom=15 ~ 0.027 derece, her zoom seviyesinde yarisina iner
+        ust_kapsam_lat = 0.027 * (2 ** (15 - ust_zoom))
+        ust_kapsam_lng = 0.035 * (2 ** (15 - ust_zoom))
+
+        # Overlap ile adim hesapla (ust grid'in yarisini kapsayacak sekilde)
+        overlap = 1.0 - self.ALT_GRID_OVERLAP
+        adim_lat = ust_kapsam_lat / 2 * overlap
+        adim_lng = ust_kapsam_lng / 2 * overlap
+
+        alt_gridler = [
+            (round(merkez_lat - adim_lat, 6), round(merkez_lng - adim_lng, 6), yeni_zoom),
+            (round(merkez_lat - adim_lat, 6), round(merkez_lng + adim_lng, 6), yeni_zoom),
+            (round(merkez_lat + adim_lat, 6), round(merkez_lng - adim_lng, 6), yeni_zoom),
+            (round(merkez_lat + adim_lat, 6), round(merkez_lng + adim_lng, 6), yeni_zoom),
+        ]
+
+        return alt_gridler
+
+    def _alt_grid_request_olustur(
+        self, lat: float, lng: float, zoom: int,
+        ust_grid_index: int, derinlik: int,
+        parent_grid_key: str = "",
+    ) -> scrapy.Request:
+        """Alt-grid icin proxy atanmis request olusturur."""
+        url = self.SEARCH_URL_TEMPLATE.format(lat=lat, lng=lng, zoom=zoom)
+        context_adi = self._yeni_context_adi()
+        proxy_url = self._proxy_sec()
+
+        self.spider_logger.info(
+            f"Alt-grid olusturuldu: derinlik={derinlik}, zoom={zoom}, "
+            f"({lat}, {lng}) <- ust_grid={ust_grid_index + 1}"
+        )
+
+        return scrapy.Request(
+            url=url,
+            callback=self.parse,
+            meta={
+                "playwright": True,
+                "playwright_context": context_adi,
+                "playwright_context_kwargs": {
+                    "proxy": {"server": proxy_url},
+                    "viewport": {"width": 1920, "height": 1080},
+                    "locale": "tr-TR",
+                    "timezone_id": "Europe/Istanbul",
+                    "java_script_enabled": True,
+                },
+                "playwright_include_page": True,
+                "playwright_page_init_callback": stealth_init_callback,
+                "playwright_page_goto_kwargs": {
+                    "wait_until": "domcontentloaded",
+                },
+                "grid_index": ust_grid_index,
+                "grid_lat": lat,
+                "grid_lng": lng,
+                "_proxy_url": proxy_url,
+                "_retry_count": 0,
+                "_basarisiz_proxyler": set(),
+                "_empty_retry_count": 0,
+                # Alt-grid ozel meta
+                "_alt_grid": True,
+                "_alt_grid_derinlik": derinlik,
+                "_alt_grid_zoom": zoom,
+                "_parent_grid_key": parent_grid_key,
+            },
+            dont_filter=True,
+            errback=self.hata_yakala,
+        )
+
+    def _dogrulama_gecisi_baslat(self):
+        """
+        Tum ana tarama + alt-gridler tamamlandiktan sonra
+        225 grid noktasini bastan tarayarak kacak kontrol eder.
+        """
+        self.spider_logger.info(
+            "=" * 60 + "\n"
+            "DOGRULAMA GECISI BASLATIILIYOR\n"
+            f"Mevcut benzersiz restoran: {self.scrape_stats['benzersiz_restoran']}\n"
+            f"Tamamlanan alt-gridler: {self.scrape_stats['alt_grid_tamamlandi']}\n"
+            "Tum 225 grid noktasi tekrar taranacak...\n"
+            + "=" * 60
+        )
+        self._dogrulama_gecisi_aktif = True
+
     def start_requests(self) -> Generator[scrapy.Request, None, None]:
         """
         Grid noktalarindan baslangic istekleri uretir.
 
         Her grid noktasi icin Google Maps arama URL'i olusturulur
-        ve Playwright ile sayfa acma istegi yapilir.
+        ve proxy atanmis Playwright istegi yapilir.
+        Sunucu IP'sinden asla dogrudan istek yapilmaz.
         """
+        atlanan = 0
         for idx, (lat, lng) in enumerate(self.grid_noktalari):
+            grid_key = self._grid_key(lat, lng)
+            if grid_key in self._tamamlanan_gridler:
+                atlanan += 1
+                self._tamamlanan_ana_gridler += 1
+                continue
+
             url = self.SEARCH_URL_TEMPLATE.format(
                 lat=lat, lng=lng, zoom=self.zoom
             )
@@ -225,21 +760,10 @@ class GoogleMapsListSpider(BaseSpider):
                 f"({lat}, {lng}) -> {url}"
             )
 
-            yield scrapy.Request(
-                url=url,
-                callback=self.parse,
-                meta={
-                    "playwright": True,
-                    "playwright_context": "default",
-                    "playwright_include_page": True,
-                    "playwright_page_init_callback": stealth_init_callback,
-                    "grid_index": idx,
-                    "grid_lat": lat,
-                    "grid_lng": lng,
-                },
-                dont_filter=True,
-                errback=self.hata_yakala,
-            )
+            yield self._proxy_ile_request_olustur(url, idx, lat, lng)
+
+        if atlanan:
+            self.spider_logger.info(f"Checkpoint: {atlanan} grid atlandi (onceden tamamlanmis)")
 
     async def parse(self, response: Response) -> Generator[
         RestaurantItem | scrapy.Request, None, None
@@ -296,19 +820,130 @@ class GoogleMapsListSpider(BaseSpider):
             await self._sonuc_paneli_scroll(page)
 
             # --- Adim 5: Restoran kartlarindan veri cikar ---
-            items, restoran_sayisi = await self._restoran_verilerini_cikar(page, response)
+            items, restoran_sayisi, kart_sayisi = await self._restoran_verilerini_cikar(
+                page, response
+            )
             for item in items:
                 yield item
+
+            # Proxy'yi basarili olarak isaretle (sayfa yuklendi)
+            proxy_url = response.meta.get("_proxy_url")
+            if proxy_url:
+                self._proxy_basarili_isaretle(proxy_url)
+
+            # --- 0 restoran kontrolu: farkli proxy ile tekrar dene ---
+            empty_retry = response.meta.get("_empty_retry_count", 0)
+            if restoran_sayisi == 0 and kart_sayisi == 0 and empty_retry < self.MAX_EMPTY_RETRY:
+                self.spider_logger.warning(
+                    f"Grid {grid_index + 1}: 0 restoran bulundu, "
+                    f"farkli proxy ile tekrar deneniyor "
+                    f"({empty_retry + 1}/{self.MAX_EMPTY_RETRY})"
+                )
+                yield self._proxy_ile_request_olustur(
+                    url=response.url,
+                    idx=grid_index, lat=grid_lat, lng=grid_lng,
+                    retry=0,
+                    basarisiz_proxyler=set(),
+                    empty_retry_count=empty_retry + 1,
+                )
+                return  # Bu deneme tamamlandi, yenisini bekle
 
             # Basarili tarama - ardisik hata sayacini sifirla
             self.scrape_stats["ardisik_hata"] = 0
             self.scrape_stats["taranan_grid_noktasi"] += 1
 
-            self.spider_logger.info(
-                f"Grid noktasi {grid_index + 1} tamamlandi: "
-                f"{restoran_sayisi} restoran bulundu, "
-                f"toplam benzersiz: {self.scrape_stats['benzersiz_restoran']}"
-            )
+            # Alt-grid meta bilgileri
+            is_alt_grid = response.meta.get("_alt_grid", False)
+            current_zoom = response.meta.get("_alt_grid_zoom", self.zoom) if is_alt_grid else self.zoom
+            derinlik = response.meta.get("_alt_grid_derinlik", 0)
+
+            if restoran_sayisi == 0 and kart_sayisi == 0 and empty_retry >= self.MAX_EMPTY_RETRY:
+                self.spider_logger.info(
+                    f"Grid {grid_index + 1}: {self.MAX_EMPTY_RETRY + 1} denemede de "
+                    f"0 restoran. Bos bolge olarak kabul ediliyor. "
+                    f"({grid_lat}, {grid_lng})"
+                )
+            else:
+                alt_grid_bilgi = f" [alt-grid d={derinlik} z={current_zoom}]" if is_alt_grid else ""
+                self.spider_logger.info(
+                    f"Grid noktasi {grid_index + 1} tamamlandi{alt_grid_bilgi}: "
+                    f"{restoran_sayisi} restoran bulundu (kart={kart_sayisi}), "
+                    f"toplam benzersiz: {self.scrape_stats['benzersiz_restoran']}"
+                )
+
+            # --- Adim 6: Alt-grid kontrolu ---
+            # Kart sayisi esik degerini asiyorsa ve zoom limiti dolmadiysa
+            # ve dogrulama gecisinde degilsek -> 2x2 alt-grid olustur
+            # Alt-grid'de yeni restoran bulunamadiysa daha derine inme
+            if (
+                kart_sayisi >= self.CARD_LIMIT_THRESHOLD
+                and current_zoom < self.MAX_ZOOM
+                and not self._dogrulama_gecisi_aktif
+            ):
+                alt_gridler = self._alt_grid_noktalari_hesapla(
+                    grid_lat, grid_lng, current_zoom
+                )
+                self.spider_logger.info(
+                    f"ALT-GRID TETIKLENDI: grid {grid_index + 1}, "
+                    f"kart={kart_sayisi} >= {self.CARD_LIMIT_THRESHOLD}, "
+                    f"zoom {current_zoom} -> {current_zoom + 1}, "
+                    f"derinlik {derinlik} -> {derinlik + 1}, "
+                    f"4 alt-grid olusturuluyor"
+                )
+
+                parent_key = self._grid_key(grid_lat, grid_lng) if not is_alt_grid else response.meta.get("_parent_grid_key", "")
+                for alt_lat, alt_lng, alt_zoom in alt_gridler:
+                    self._bekleyen_alt_gridler += 1
+                    self._parent_bekleyen[parent_key] += 1
+                    self.scrape_stats["alt_grid_olusturuldu"] += 1
+                    yield self._alt_grid_request_olustur(
+                        alt_lat, alt_lng, alt_zoom,
+                        ust_grid_index=grid_index,
+                        derinlik=derinlik + 1,
+                        parent_grid_key=parent_key,
+                    )
+            # --- Adim 7: Tamamlanma sayaclarini guncelle + checkpoint ---
+            parent_key = response.meta.get("_parent_grid_key", "")
+            if is_alt_grid:
+                self._bekleyen_alt_gridler -= 1
+                self.scrape_stats["alt_grid_tamamlandi"] += 1
+                if derinlik > self.scrape_stats["alt_grid_max_derinlik"]:
+                    self.scrape_stats["alt_grid_max_derinlik"] = derinlik
+                # Parent grid'in alt-grid sayacini azalt
+                if parent_key and parent_key in self._parent_bekleyen:
+                    self._parent_bekleyen[parent_key] -= 1
+                    if self._parent_bekleyen[parent_key] <= 0:
+                        self._tamamlanan_gridler.add(parent_key)
+                        self._checkpoint_kaydet()
+                        self.spider_logger.info(f"CHECKPOINT: {parent_key} tamamlandi (alt-gridler dahil)")
+                        del self._parent_bekleyen[parent_key]
+            elif not self._dogrulama_gecisi_aktif:
+                self._tamamlanan_ana_gridler += 1
+                ana_key = self._grid_key(grid_lat, grid_lng)
+                # Alt-grid tetiklenmediyse hemen checkpoint
+                if kart_sayisi < self.CARD_LIMIT_THRESHOLD or current_zoom >= self.MAX_ZOOM:
+                    self._tamamlanan_gridler.add(ana_key)
+                    self._checkpoint_kaydet()
+                    self.spider_logger.info(f"CHECKPOINT: {ana_key} tamamlandi")
+
+            # --- Adim 8: Dogrulama gecisi kontrolu ---
+            # Ana tarama + tum alt-gridler tamamlandiysa dogrulama baslat
+            if (
+                not self._dogrulama_gecisi_aktif
+                and not self._ana_tarama_tamamlandi
+                and self._tamamlanan_ana_gridler >= len(self.grid_noktalari)
+                and self._bekleyen_alt_gridler <= 0
+            ):
+                self._ana_tarama_tamamlandi = True
+                self._dogrulama_gecisi_baslat()
+
+                for v_idx, (v_lat, v_lng) in enumerate(self.grid_noktalari):
+                    v_url = self.SEARCH_URL_TEMPLATE.format(
+                        lat=v_lat, lng=v_lng, zoom=self.zoom
+                    )
+                    yield self._proxy_ile_request_olustur(
+                        v_url, v_idx, v_lat, v_lng
+                    )
 
             # Arama noktalari arasi rastgele bekleme (5-15 saniye)
             bekleme = random.uniform(5, 15)
@@ -332,21 +967,40 @@ class GoogleMapsListSpider(BaseSpider):
 
         Google Maps ilk acilista GDPR uyumlu cookie onay diyalogu gosterir.
         Bu diyalog kapatilmadan sonuc listesine erisilemez.
+        Consent sayfasi proxy ulkesine gore farkli dillerde gorunebilir.
         """
         try:
+            # Consent sayfasinda miyiz kontrol et
+            current_url = page.url
+            is_consent_page = "consent" in current_url.lower()
+
+            if not is_consent_page:
+                # Belki sayfa icinde cookie dialog'u vardir
+                content = await page.content()
+                if "consent" not in content[:5000].lower():
+                    self.spider_logger.debug(
+                        "Cookie/consent sayfasi tespit edilmedi"
+                    )
+                    return
+
+            self.spider_logger.info("Consent sayfasi tespit edildi, kabul ediliyor...")
+
             # Google'in cookie onay diyalogu icin farkli selectorlar dene
+            # Sirasi onemli: spesifik olanlar once
             cookie_selectorlar = [
-                # "Tumu kabul et" butonu
+                # Turkce
                 'button[aria-label="Tümünü kabul et"]',
+                # Ingilizce
                 'button[aria-label="Accept all"]',
-                # Form bazli selectorlar
+                # Almanca
+                'button[aria-label="Alle akzeptieren"]',
+                # Fransizca
+                'button[aria-label="Tout accepter"]',
+                # Form bazli selectorlar (dil bagimsiz)
                 'form[action*="consent"] button',
-                'div[role="dialog"] button',
-                # Genel cookie banner selectorlari
-                '[data-ved] button:has-text("Kabul")',
-                '[data-ved] button:has-text("Accept")',
             ]
 
+            clicked = False
             for selector in cookie_selectorlar:
                 try:
                     buton = await page.query_selector(selector)
@@ -360,15 +1014,54 @@ class GoogleMapsListSpider(BaseSpider):
                             )
                             await asyncio.sleep(random.uniform(0.3, 0.8))
                         await buton.click()
-                        self.spider_logger.debug(
-                            f"Cookie diyalogu kapatildi (selector: {selector})"
+                        self.spider_logger.info(
+                            f"Consent butonu tiklandi (selector: {selector})"
                         )
-                        await asyncio.sleep(random.uniform(1.0, 2.0))
-                        return
+                        clicked = True
+                        break
                 except Exception:
                     continue
 
-            self.spider_logger.debug("Cookie diyalogu bulunamadi (muhtemelen zaten kabul edilmis)")
+            if not clicked:
+                # Son care: "kabul" / "accept" metni iceren butonlari dene
+                buttons = await page.query_selector_all("button")
+                for btn in buttons:
+                    try:
+                        txt = (await btn.inner_text()).strip().lower()
+                        if any(w in txt for w in [
+                            "kabul", "accept", "akzep", "accepter",
+                        ]):
+                            await btn.click()
+                            self.spider_logger.info(
+                                f"Consent butonu tiklandi (metin: {repr(txt)})"
+                            )
+                            clicked = True
+                            break
+                    except Exception:
+                        continue
+
+            if not clicked:
+                self.spider_logger.warning("Consent butonu bulunamadi!")
+                return
+
+            # Consent sonrasi: sayfanin Maps'e yonlenmesini bekle
+            try:
+                await page.wait_for_url(
+                    "**/maps/**", timeout=15000,
+                )
+                self.spider_logger.debug(
+                    f"Consent sonrasi Maps'e yonlendirildi: {page.url}"
+                )
+            except Exception:
+                self.spider_logger.warning(
+                    f"Consent sonrasi Maps yonlendirmesi zaman asimi. URL: {page.url}"
+                )
+
+            # Maps sayfasi yuklendikten sonra networkidle bekle
+            try:
+                await page.wait_for_load_state("networkidle", timeout=20000)
+            except Exception:
+                self.spider_logger.debug("Consent sonrasi networkidle zaman asimi (devam ediliyor)")
 
         except Exception as e:
             self.spider_logger.debug(f"Cookie diyalogu kapatma hatasi (onemli degil): {e}")
@@ -385,18 +1078,39 @@ class GoogleMapsListSpider(BaseSpider):
             False: Sayfa yuklenemedi (timeout veya hata)
         """
         try:
-            # networkidle bekle
-            await page.wait_for_load_state("networkidle", timeout=30000)
+            # Hala consent sayfasindaysak bekle
+            if "consent" in page.url.lower():
+                self.spider_logger.warning("Hala consent sayfasinda, sayfa yuklenemedi")
+                return False
+
+            # networkidle bekle (zaten consent handler'da yapildi ama
+            # consent yoksa burada da yapmamiz gerekir)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=20000)
+            except Exception:
+                self.spider_logger.debug("networkidle zaman asimi (devam ediliyor)")
+
+            # Sonuc panelini (feed) bekle - bu Maps'in JS icerigini
+            # tamamen render ettiginin en iyi gostergesi
+            try:
+                await page.wait_for_selector(
+                    'div[role="feed"]', timeout=15000,
+                )
+                self.spider_logger.debug("Sonuc paneli (feed) bulundu")
+                return True
+            except Exception:
+                self.spider_logger.debug("Feed paneli 15s icinde bulunamadi")
 
             # Ekstra bekleme (JS render tamamlanmasi icin)
             ekstra_bekleme = random.uniform(3.0, 5.0)
             await asyncio.sleep(ekstra_bekleme)
 
-            # Sonuc paneli veya harita konteynerini ara
+            # Fallback selectorlari kontrol et
             sonuc_selektorlari = [
                 'div[role="feed"]',
                 'div[role="main"]',
                 'div.m6QErb',
+                'a[href*="/maps/place/"]',
             ]
 
             for selector in sonuc_selektorlari:
@@ -404,7 +1118,7 @@ class GoogleMapsListSpider(BaseSpider):
                     element = await page.query_selector(selector)
                     if element:
                         self.spider_logger.debug(
-                            f"Sonuc paneli bulundu: {selector}"
+                            f"Sonuc paneli bulundu (fallback): {selector}"
                         )
                         return True
                 except Exception:
@@ -416,7 +1130,10 @@ class GoogleMapsListSpider(BaseSpider):
                 self.spider_logger.debug("Sayfa icerigi restoran verisi iceriyor")
                 return True
 
-            self.spider_logger.warning("Sonuc paneli bulunamadi")
+            self.spider_logger.warning(
+                f"Sonuc paneli bulunamadi. URL: {page.url}, "
+                f"Content length: {len(body)}"
+            )
             return False
 
         except Exception as e:
@@ -576,7 +1293,7 @@ class GoogleMapsListSpider(BaseSpider):
 
     async def _restoran_verilerini_cikar(
         self, page: Any, response: Response
-    ) -> tuple[list, int]:
+    ) -> tuple[list, int, int]:
         """
         Sonuc panelindeki restoran kartlarindan veri cikarir.
 
@@ -588,7 +1305,8 @@ class GoogleMapsListSpider(BaseSpider):
             response: Scrapy Response nesnesi
 
         Returns:
-            (items listesi, bulunan restoran sayisi) tuple'i
+            (items listesi, yeni restoran sayisi, toplam kart sayisi) tuple'i
+            toplam kart sayisi: Sayfadaki ham kart adedi (dedup oncesi)
         """
         items = []
         bulunan_sayisi = 0
@@ -611,7 +1329,7 @@ class GoogleMapsListSpider(BaseSpider):
 
             if not kartlar:
                 self.spider_logger.warning("Restoran karti bulunamadi")
-                return ([], 0)
+                return ([], 0, 0)
 
             for kart in kartlar:
                 try:
@@ -632,16 +1350,27 @@ class GoogleMapsListSpider(BaseSpider):
                     self.scrape_stats["benzersiz_restoran"] += 1
                     bulunan_sayisi += 1
 
+                    # Ilce tespiti: once adres metninden, sonra koordinattan
+                    adres = restoran_verisi.get("address", "")
+                    lat = restoran_verisi.get("latitude")
+                    lng = restoran_verisi.get("longitude")
+                    ilce = _ilce_belirle_metin(adres)
+                    if not ilce and lat and lng:
+                        try:
+                            ilce = _ilce_belirle_koordinat(float(lat), float(lng))
+                        except (ValueError, TypeError):
+                            ilce = ""
+
                     # RestaurantItem olustur
                     item = self.build_restaurant_item(
                         name=restoran_verisi.get("name", ""),
                         source_id=source_id,
-                        address=restoran_verisi.get("address", ""),
-                        district="",
+                        address=adres,
+                        district=ilce,
                         neighborhood="",
                         city="istanbul",
-                        latitude=restoran_verisi.get("latitude"),
-                        longitude=restoran_verisi.get("longitude"),
+                        latitude=lat,
+                        longitude=lng,
                         phone=None,
                         website=None,
                         cuisine_types=restoran_verisi.get("cuisine_types", []),
@@ -665,7 +1394,7 @@ class GoogleMapsListSpider(BaseSpider):
         except Exception as e:
             self.spider_logger.error(f"Restoran veri cikartma hatasi: {e}")
 
-        return (items, bulunan_sayisi)
+        return (items, bulunan_sayisi, len(kartlar))
 
     async def _tek_kart_isle(self, kart: Any, page: Any) -> dict[str, Any] | None:
         """
@@ -1048,30 +1777,74 @@ class GoogleMapsListSpider(BaseSpider):
             self.scrape_stats["ardisik_hata"] = 0
             self.spider_logger.info("Bekleme tamamlandi, devam ediliyor...")
 
-    async def hata_yakala(self, failure: Any) -> None:
+    async def hata_yakala(self, failure: Any) -> Generator[scrapy.Request, None, None]:
         """
         Scrapy Request hata callback'i.
 
-        Timeout, baglanti hatasi vb. durumlarda cagrilir.
-        Hatayi loglar ve istatistikleri gunceller.
-
-        Args:
-            failure: Twisted Failure nesnesi
+        Timeout veya baglanti hatasinda farkli proxy ile yeniden dener.
+        MAX_PROXY_RETRY asildiginda grid noktasini atlar.
         """
-        self.spider_logger.error(
-            f"Istek hatasi: {failure.type.__name__}: {failure.value} "
-            f"URL: {failure.request.url}"
+        meta = failure.request.meta
+        retry = meta.get("_retry_count", 0)
+        proxy_url = meta.get("_proxy_url", "bilinmiyor")
+        basarisiz = meta.get("_basarisiz_proxyler", set()).copy()
+        basarisiz.add(proxy_url)
+
+        self.spider_logger.warning(
+            f"Proxy basarisiz: {proxy_url} - {failure.type.__name__} "
+            f"(deneme {retry + 1}/{self.MAX_PROXY_RETRY}) URL: {failure.request.url}"
         )
         self.scrape_stats["hata"] += 1
-        self._ardisik_hata_kontrolu()
 
         # Playwright sayfasini temizle
-        page = failure.request.meta.get("playwright_page")
+        page = meta.get("playwright_page")
         if page:
             try:
                 await page.close()
             except Exception:
                 pass
+
+        # Yeniden deneme limiti kontrolu
+        if retry + 1 < self.MAX_PROXY_RETRY:
+            idx = meta.get("grid_index", 0)
+            lat = meta.get("grid_lat", 0)
+            lng = meta.get("grid_lng", 0)
+
+            self.spider_logger.info(
+                f"Farkli proxy ile tekrar deneniyor (grid {idx + 1})..."
+            )
+
+            # Alt-grid request'i ise meta bilgilerini koru
+            empty_retry = meta.get("_empty_retry_count", 0)
+            new_request = self._proxy_ile_request_olustur(
+                url=failure.request.url,
+                idx=idx, lat=lat, lng=lng,
+                retry=retry + 1,
+                basarisiz_proxyler=basarisiz,
+                empty_retry_count=empty_retry,
+            )
+            # Alt-grid meta'sini yeni request'e aktar
+            if meta.get("_alt_grid"):
+                new_request.meta["_alt_grid"] = True
+                new_request.meta["_alt_grid_derinlik"] = meta.get("_alt_grid_derinlik", 1)
+                new_request.meta["_alt_grid_zoom"] = meta.get("_alt_grid_zoom", self.zoom)
+
+            yield new_request
+        else:
+            self.spider_logger.error(
+                f"Grid noktasi {meta.get('grid_index', '?') + 1} icin "
+                f"{self.MAX_PROXY_RETRY} proxy denendi, hepsi basarisiz. Atlaniyor."
+            )
+            # Alt-grid sayacini guncelle (atlanilan alt-grid)
+            if meta.get("_alt_grid"):
+                self._bekleyen_alt_gridler -= 1
+                self.spider_logger.warning(
+                    f"Alt-grid atlanildi (bekleyen: {self._bekleyen_alt_gridler})"
+                )
+            elif not self._dogrulama_gecisi_aktif:
+                self._tamamlanan_ana_gridler += 1
+
+            self._ardisik_hata_kontrolu()
 
     # ---- BaseSpider Soyut Metod Implementasyonlari ----
 

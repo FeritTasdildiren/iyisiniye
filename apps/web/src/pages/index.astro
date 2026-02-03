@@ -1,6 +1,8 @@
 ---
 // src/pages/index.astro
 import BaseLayout from '../layouts/BaseLayout.astro';
+import PopularDishesCarousel from '../components/PopularDishesCarousel';
+import HeroSearch from '../components/HeroSearch';
 
 // Mock Data: Haftanın Yıldızları
 const weeklyStars = [
@@ -9,7 +11,7 @@ const weeklyStars = [
     name: "Zurna Dürümcüsü",
     rating: 9.2,
     cuisine: "Sokak Lezzetleri",
-    image: "https://images.unsplash.com/photo-1626804475297-411d863b5285?auto=format&fit=crop&q=80&w=800",
+    image: "https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?auto=format&fit=crop&q=80&w=800",
     distance: "1.2 km"
   },
   {
@@ -17,7 +19,7 @@ const weeklyStars = [
     name: "Burger Station",
     rating: 8.7,
     cuisine: "Burger",
-    image: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&q=80&w=800",
+    image: "https://images.unsplash.com/photo-1559847844-5315695dadae?auto=format&fit=crop&q=80&w=800",
     distance: "3.5 km"
   },
   {
@@ -25,7 +27,7 @@ const weeklyStars = [
     name: "Makarna Atölyesi",
     rating: 7.5,
     cuisine: "İtalyan",
-    image: "https://images.unsplash.com/photo-1551183053-bf91b1dca038?auto=format&fit=crop&q=80&w=800",
+    image: "https://images.unsplash.com/photo-1476224203421-9ac39bcb3327?auto=format&fit=crop&q=80&w=800",
     distance: "500m"
   }
 ];
@@ -41,10 +43,10 @@ const getScoreColor = (score: number) => {
 <BaseLayout title="iyisiniye - Bugün Canın Ne Çekiyor?" description="En iyi yemekleri ve restoranları keşfet.">
   <!-- Sticky Header -->
   <header class="sticky top-0 z-50 bg-white border-b border-gray-100 shadow-sm">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-      <div class="flex items-center gap-2">
-        <span class="text-2xl font-bold font-poppins text-orange-600">iyisiniye</span>
-      </div>
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2">
+        <img src="/logo.png" alt="iyisiniye" class="h-14" />
+      </a>
       <div class="flex items-center gap-4">
         <button class="text-sm font-medium text-gray-600 hover:text-orange-600">Giriş Yap</button>
         <button class="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-700 transition-colors">
@@ -62,20 +64,8 @@ const getScoreColor = (score: number) => {
           Bugün Canın <span class="text-orange-600">Ne Çekiyor?</span>
         </h1>
 
-        <!-- Search Box -->
-        <div class="max-w-3xl mx-auto bg-white p-2 rounded-2xl md:rounded-full shadow-lg border border-gray-100 flex flex-col md:flex-row gap-2">
-          <div class="flex-1 px-4 py-2 flex items-center border-b md:border-b-0 md:border-r border-gray-100">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-            <input type="text" placeholder="Yemek veya mekan ara..." class="w-full bg-transparent focus:outline-none text-gray-700 placeholder-gray-400" />
-          </div>
-          <div class="flex-1 px-4 py-2 flex items-center">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-            <input type="text" placeholder="Konum (Semt, İlçe)" class="w-full bg-transparent focus:outline-none text-gray-700 placeholder-gray-400" />
-          </div>
-          <button class="bg-orange-600 text-white px-8 py-3 rounded-xl md:rounded-full font-medium hover:bg-orange-700 transition-all shadow-md hover:shadow-lg w-full md:w-auto">
-            En İyisini Bul
-          </button>
-        </div>
+        <!-- Search Box (React Island) -->
+        <HeroSearch client:load />
       </div>
     </section>
 
@@ -83,10 +73,7 @@ const getScoreColor = (score: number) => {
     <section class="py-16 bg-white">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <h2 class="text-2xl font-bold font-poppins text-gray-900 mb-8">Popüler Yemekler</h2>
-        <!-- React Island: PopularDishesCarousel -->
-        <div class="w-full h-64 bg-gray-50 rounded-xl border border-dashed border-gray-300 flex items-center justify-center text-gray-400">
-          React Island: PopularDishesCarousel (Carousel Component)
-        </div>
+        <PopularDishesCarousel client:visible />
       </div>
     </section>
 
@@ -147,7 +134,7 @@ const getScoreColor = (score: number) => {
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="grid grid-cols-1 md:grid-cols-4 gap-8 mb-12">
         <div class="col-span-1 md:col-span-1">
-          <span class="text-2xl font-bold font-poppins text-orange-600">iyisiniye</span>
+          <img src="/logo.png" alt="iyisiniye" class="h-14" />
           <p class="mt-4 text-sm text-gray-500">
             Damak tadınıza en uygun lezzetleri bulmanın en kolay yolu.
           </p>
@@ -171,10 +158,15 @@ const getScoreColor = (score: number) => {
         <div>
           <h4 class="font-bold text-gray-900 mb-4">Takip Et</h4>
           <div class="flex space-x-4">
-             <!-- Social Icons placeholders -->
-             <div class="w-8 h-8 bg-gray-100 rounded-full"></div>
-             <div class="w-8 h-8 bg-gray-100 rounded-full"></div>
-             <div class="w-8 h-8 bg-gray-100 rounded-full"></div>
+             <a href="#" aria-label="Instagram" class="w-9 h-9 bg-gray-100 hover:bg-orange-100 rounded-full flex items-center justify-center text-gray-500 hover:text-orange-600 transition-colors">
+               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 1.17.054 1.97.24 2.43.403a4.088 4.088 0 011.523.99 4.088 4.088 0 01.99 1.524c.163.46.349 1.26.403 2.43.058 1.265.07 1.645.07 4.849s-.012 3.584-.07 4.85c-.054 1.17-.24 1.97-.403 2.43a4.088 4.088 0 01-.99 1.523 4.088 4.088 0 01-1.524.99c-.46.163-1.26.349-2.43.403-1.265.058-1.645.07-4.849.07s-3.584-.012-4.85-.07c-1.17-.054-1.97-.24-2.43-.403a4.088 4.088 0 01-1.523-.99 4.088 4.088 0 01-.99-1.524c-.163-.46-.349-1.26-.403-2.43C2.175 15.747 2.163 15.367 2.163 12s.012-3.584.07-4.85c.054-1.17.24-1.97.403-2.43a4.088 4.088 0 01.99-1.523A4.088 4.088 0 015.15 2.636c.46-.163 1.26-.349 2.43-.403C8.845 2.175 9.225 2.163 12 2.163zm0-2.163C8.741 0 8.333.014 7.053.072 5.775.13 4.902.333 4.14.63a6.21 6.21 0 00-2.245 1.462A6.21 6.21 0 00.433 4.337C.136 5.1-.067 5.973-.125 7.25-.183 8.53-.197 8.938-.197 12.197s.014 3.668.072 4.948c.058 1.277.261 2.15.558 2.913a6.21 6.21 0 001.462 2.245 6.21 6.21 0 002.245 1.462c.763.297 1.636.5 2.913.558C8.333 24.383 8.741 24.397 12 24.397s3.668-.014 4.948-.072c1.277-.058 2.15-.261 2.913-.558a6.21 6.21 0 002.245-1.462 6.21 6.21 0 001.462-2.245c.297-.763.5-1.636.558-2.913.058-1.28.072-1.688.072-4.948s-.014-3.668-.072-4.948c-.058-1.277-.261-2.15-.558-2.913a6.21 6.21 0 00-1.462-2.245A6.21 6.21 0 0019.86.63C19.1.333 18.226.13 16.95.072 15.67.014 15.26 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
+             </a>
+             <a href="#" aria-label="X (Twitter)" class="w-9 h-9 bg-gray-100 hover:bg-orange-100 rounded-full flex items-center justify-center text-gray-500 hover:text-orange-600 transition-colors">
+               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+             </a>
+             <a href="#" aria-label="YouTube" class="w-9 h-9 bg-gray-100 hover:bg-orange-100 rounded-full flex items-center justify-center text-gray-500 hover:text-orange-600 transition-colors">
+               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+             </a>
           </div>
         </div>
       </div>

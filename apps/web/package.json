@@ -12,17 +12,17 @@
     "clean": "rm -rf dist .astro"
   },
   "dependencies": {
-    "astro": "^5.1.0",
     "@astrojs/react": "^4.1.0",
-    "@astrojs/tailwind": "^6.0.0",
+    "@iyisiniye/shared": "workspace:*",
+    "@tailwindcss/vite": "^4.1.18",
+    "astro": "^5.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "tailwindcss": "^4.0.0",
-    "@iyisiniye/shared": "workspace:*"
+    "tailwindcss": "^4.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.7.0",
     "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0"
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.7.0"
   }
 }

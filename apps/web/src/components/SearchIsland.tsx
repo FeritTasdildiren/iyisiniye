@@ -114,8 +114,8 @@ export default function SearchIsland({ initialQuery = '' }: SearchIslandProps) {
       const res = await fetch(`${API_BASE_URL}/search?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
-        setResults(data.results);
-        setTotalCount(data.total);
+        setResults(data.data);
+        setTotalCount(data.pagination?.total ?? 0);
       } else {
         setResults([]);
         setTotalCount(0);

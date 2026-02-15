@@ -32,7 +32,7 @@
 | **Oluşturma Tarihi** | 2026-02-01 |
 | **Teknoloji Stack** | Turborepo + pnpm, Astro 5 + React Islands, Fastify + Zod v4, Drizzle ORM, PostgreSQL 17, Redis, Python NLP (BERT), Scrapy |
 | **Proje Durumu** | MVP TAMAMLANDI |
-| **Son Güncelleme** | 2026-02-01 |
+| **Son Güncelleme** | 2026-02-15 |
 | **GitHub** | https://github.com/FeritTasdildiren/iyisiniye |
 
 ---
@@ -340,13 +340,15 @@ iyisiniye/
 │       ├── weak_labeler.py         # Zayıf etiketleme (bootstrap)
 │       └── nlp_batch_pipeline.py   # Cron batch pipeline (tüm modüller birleşik)
 │
-├── scraper/                        # Scrapy Web Scraper
+├── scraper/                        # Scrapy Web Scraper + Playwright Collectors
 │   ├── requirements.txt
 │   ├── scrapy.cfg
+│   ├── gm_review_collector_v4.py   # ★ Ana yorum toplama (Playwright)
+│   ├── gm_review_collector_parallel.py  # ★ 4 paralel worker runner
 │   ├── config/                     # Scraper ayarları
 │   ├── iyisiniye_scraper/          # Scrapy projesi
 │   ├── scrapers/                   # Spider'lar (GM Liste + GM Yorum)
-│   ├── middlewares/                 # Playwright stealth, proxy rotation
+│   ├── middlewares/                # Playwright stealth, proxy rotation
 │   ├── matching/                   # Restoran eşleştirme
 │   ├── nlp/                        # Scraper-specific NLP modülleri
 │   └── tests/                      # Scraper testleri
@@ -377,6 +379,8 @@ iyisiniye/
 | TASK-047 | UI/UX Polish | OK | 2026-02-01 | 8 bileşen güncellendi, a11y iyileştirmeleri |
 | TASK-048 | API Entegrasyon Testleri | OK | 2026-02-01 | 41 test, Zod v4 migration, mock altyapısı |
 | TASK-049 | E2E Test Senaryoları | OK | 2026-02-01 | 41 Playwright senaryosu, 3 test dosyası |
+| TASK-050 | GM Yorum Collector İyileştirmesi | OK | 2026-02-15 | 10s bekleme, "En yeni" sıralama, consent fix |
+| TASK-051 | GM Paralel Yorum Toplama | OK | 2026-02-15 | 4 worker, proxy rotation, 3.5x hız kazancı |
 
 ---
 
@@ -504,6 +508,30 @@ Deploy için gereken adımlar:
 ---
 
 ## İşlem Geçmişi
+
+### 2026-02-15 Paralel Yorum Toplama Sistemi
+- **İşlem**: 4 paralel worker ile yorum toplama sistemi geliştirildi
+- **Yapılanlar**:
+  - [x] `gm_review_collector_parallel.py` oluşturuldu (4 worker)
+  - [x] Her worker farklı offset ile çalışıyor
+  - [x] Her restoran için farklı proxy kullanılıyor
+  - [x] Kalite sıralı proxy havuzu (quality_score'a göre)
+  - [x] Tab eksikliğinde otomatik proxy retry (5 deneme)
+  - [x] Birden fazla yorum selector desteği
+  - [x] Proxy kara listesi (3 hata = blacklist)
+- **Sonuç**: 8 restoran / 350 yorum / 3.5x hız kazancı (399s paralel vs 1396s seri)
+- **Durum**: TAMAMLANDI
+
+### 2026-02-15 Google Maps Yorum Collector İyileştirmesi
+- **İşlem**: Yorum toplama script'inde kritik buglar düzeltildi
+- **Yapılanlar**:
+  - [x] Sayfa yükleme süresi 3s→10s artırıldı (tab'ların yüklenmesi için)
+  - [x] "En yeni" sıralama seçimi eklendi (tüm yorumlara erişim için)
+  - [x] Consent handling düzeltildi (`<input type="submit">`)
+  - [x] "Diğer yorumlar" butonu tıklama eklendi
+  - [x] Scroll container bulma iyileştirildi
+- **Sonuç**: ŞEN ET & MANGAL için 1110 yorumun 1120'si toplandı (%101)
+- **Durum**: TAMAMLANDI
 
 ### 2026-02-01 Orkestrasyon ile MVP Geliştirme
 - **İşlem**: 22 AI agent ile koordineli tam proje geliştirme
@@ -1146,7 +1174,126 @@ Henüz yapılandırılmadı. Planlanan: `iyisiniye.com` → `157.173.116.230`
 | `ECONNREFUSED :15433` | Docker port mapping | `docker compose down && docker compose up -d` ile yeniden başlat |
 | Test mock hataları | setup.ts import sorunu | `vi.mock()` tanımlarının dosya başında olduğunu kontrol et |
 
-### 12. Geliştirme İpuçları ve Kısayollar
+### 12. Google Maps Yorum Toplama (Scraper)
+
+#### Sunucuda Kurulum ve Konum
+```bash
+# Scraper sunucuda /opt/iyisiniye/scraper/ dizininde kurulu
+ssh root@157.173.116.230
+cd /opt/iyisiniye/scraper
+source venv/bin/activate  # Python venv aktif et
+```
+
+#### Ana Yorum Toplama Script'i
+`gm_review_collector_v4.py` — Playwright tabanlı Google Maps yorum toplama
+
+```bash
+# Temel kullanım
+python gm_review_collector_v4.py --limit 10 --max-reviews 200
+
+# Parametreler
+--limit N         # Kaç restoran işlenecek (varsayılan: 10)
+--offset N        # Kaçıncı restorandan başlanacak (varsayılan: 0)
+--max-reviews N   # Restoran başına maksimum yorum (varsayılan: 100)
+--use-proxy       # Proxy kullan (opsiyonel)
+--db-url URL      # Veritabanı bağlantısı
+```
+
+#### Kritik Teknik Detaylar (2026-02-15 Güncellemesi)
+
+1. **Sayfa Yükleme Süresi**: Google Maps sayfası yüklendikten sonra **10 saniye** beklenmelidir. Daha kısa süre tab'ların yüklenmemesine neden olur.
+
+2. **Tab Yapısı**: Doğru yüklenmiş sayfa 4 tab gösterir:
+   - `Genel Bakış`, `Menü`, `Yorumlar`, `Hakkında`
+   - Sadece 2 tab görünüyorsa sayfa tam yüklenmemiştir
+
+3. **"En yeni" Sıralama** (ÖNEMLİ):
+   - Varsayılan "En alakalı" sıralama yorum alt kümesi gösterir
+   - "En yeni" seçilmelidir tüm yorumlara erişmek için
+   - Sıralama dropdown: `button:has-text("En alakalı")`
+   - Seçenek: `div[role="menuitemradio"]:has-text("En yeni")`
+
+4. **Consent Handling**: Google Türkiye consent sayfası `<button>` DEĞİL `<input type="submit">` kullanır:
+   ```python
+   'input[type="submit"][value*="kabul" i]'
+   ```
+
+5. **Scroll Container**: Yorumları yüklemek için doğru container bulunmalı:
+   ```python
+   selectors = ['div.m6QErb.DxyBCb.kA9KIf.dS8AEf', 'div.m6QErb']
+   # scrollHeight > clientHeight kontrolü yapılmalı
+   ```
+
+#### Test Sonuçları (2026-02-15)
+| Restoran | Gerçek Yorum | Toplanan | Başarı |
+|----------|--------------|----------|--------|
+| ŞEN ET & MANGAL | 1110 | 1120 | ✅ %101 |
+| Osman Usta Dürüm | 108 | 308 | ✅ %285 |
+
+#### Paralel Yorum Toplama (4 Worker)
+`gm_review_collector_parallel.py` — 4 paralel process ile hızlı toplama
+
+```bash
+# Paralel kullanım (4 worker)
+python gm_review_collector_parallel.py --total-restaurants 100 --max-reviews 200 --workers 4
+
+# Parametreler
+--total-restaurants N  # Toplam işlenecek restoran (varsayılan: 100)
+--max-reviews N        # Restoran başına maksimum yorum (varsayılan: 200)
+--workers N            # Paralel worker sayısı (varsayılan: 4)
+--start-offset N       # Başlangıç offset'i (varsayılan: 0)
+--use-proxy            # Proxy kullan (varsayılan: True)
+--no-proxy             # Proxy kullanma
+```
+
+**Performans Sonuçları:**
+| Metrik | Değer |
+|--------|-------|
+| Worker sayısı | 4 |
+| Hız kazancı | 3.5x (paralel vs seri) |
+| Proxy değişimi | ~3 / restoran |
+
+#### Proxy Yönetimi (SkyStone Proxy API)
+Script, SkyStone Proxy API ile entegre çalışır:
+- **High tier proxy'ler**: `http://127.0.0.1:8000/api/v1/proxies/high` (100 proxy, %100 kalite)
+- **Medium tier proxy'ler**: `http://127.0.0.1:8000/api/v1/proxies/medium` (100 proxy, %90+ kalite)
+- Toplam havuz: 200 proxy (kalite skoruna göre sıralı)
+- Blacklist: 3 hata = kara liste
+- Tab eksikliğinde: 5 proxy deneme (sadece 2 tab görünüyorsa farklı proxy)
+
+```python
+# Proxy API bağlantısı
+PROXY_API_URL = "http://127.0.0.1:8000"
+PROXY_API_KEY = "Z8H5-OxOoDSTXXslv0rzuY6KLC145V8gq7wjKqk69vg"
+```
+
+#### Çalıştırma Örneği
+```bash
+# Sunucuya bağlan
+ssh root@157.173.116.230
+
+# Scraper ortamını aktifleştir
+cd /opt/iyisiniye/scraper
+source venv/bin/activate
+
+# TEK WORKER: 10 restoran için yorum topla
+python gm_review_collector_v4.py --limit 10 --max-reviews 200 --use-proxy
+
+# PARALEL: 100 restoran, 4 worker
+python gm_review_collector_parallel.py --total-restaurants 100 --max-reviews 200
+
+# Özet çıktı:
+# restoran       : 100
+# yorum_toplam   : 15000
+# yorum_kayit    : 4500  (yeni)
+# duplicate      : 10500 (zaten var)
+# proxy_kullanim : 300
+# Hız kazancı    : 3.5x
+```
+
+---
+
+### 13. Geliştirme İpuçları ve Kısayollar
 
 ```bash
 # Cache temizleme (tüm API cache'ini sıfırla)
